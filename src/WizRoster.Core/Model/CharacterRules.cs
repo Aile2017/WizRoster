@@ -78,7 +78,7 @@ public static class CharacterRules
         var equippedPerType = new int[EquipSlotTypes];
         foreach (var (p, i) in c.GetItems().Select((p, i) => (p, i)))
         {
-            var item = scenario.FindItem(p.ItemIndex);
+            var item = scenario.ResolveItem(p.ItemIndex);
             if (item == null)
             {
                 w.Add($"持ち物 {i + 1}: アイテム番号 {p.ItemIndex} はアイテム表にありません。");

@@ -97,6 +97,20 @@ public sealed class ScenarioFile
 
     public ItemDef? FindItem(int index) => index >= 0 && index < Items.Count ? Items[index] : null;
 
+    /// <summary>
+    /// #3 で、持ち物の番号に 1000 が足されていることがある(状態が消滅のキャラクタで見つかった。足す意味は未確認)。
+    /// 1000 を引いた番号のアイテムは職業と装備が合うので、そのアイテムとして扱う。
+    /// </summary>
+    public const int ItemNumberFlag = 1000;
+
+    /// <summary>持ち物の番号からアイテムを引く。1000 が足された番号も解決する。</summary>
+    public ItemDef? ResolveItem(int number) =>
+        FindItem(number) ?? (number >= ItemNumberFlag ? FindItem(number - ItemNumberFlag) : null);
+
+    /// <summary>番号が「1000 + アイテム番号」の形か。</summary>
+    public bool IsFlaggedItemNumber(int number) =>
+        FindItem(number) == null && number >= ItemNumberFlag && FindItem(number - ItemNumberFlag) != null;
+
     public SpellDef? FindSpell(int bit) => AllSpells.FirstOrDefault(s => s.Bit == bit);
 
     /// <summary>区分 zone の index 番目のレコードの位置(SCENARIO.DATA 先頭からのバイト数)。</summary>
@@ -177,16 +191,10 @@ public sealed class ScenarioFile
     /// </summary>
     private (List<SpellDef>, List<SpellDef>) LoadSpells(KrnMessageFile? messages)
     {
-        if (ItemRecordSize == ItemDef.RecordSize)
+        if (ItemRecordSize == ItemDef.RecordSize && FindSpellTables() is var (mageNames, priestNames))
         {
-            int mazeBlock = BlockOffsets[(int)Zone.Maze];
-            var mageNames = ReadSpellBlock(mazeBlock - 2);
-            var priestNames = ReadSpellBlock(mazeBlock - 1);
-            if (mageNames is { Count: > 0 } && priestNames is { Count: > 0 })
-            {
-                var mage = BuildSpells(mageNames, SpellSchool.Mage, firstBit: 1);
-                return (mage, BuildSpells(priestNames, SpellSchool.Priest, firstBit: 1 + mage.Count));
-            }
+            var mage = BuildSpells(mageNames, SpellSchool.Mage, firstBit: 1);
+            return (mage, BuildSpells(priestNames, SpellSchool.Priest, firstBit: 1 + mage.Count));
         }
 
         if (messages == null)
@@ -212,6 +220,34 @@ public sealed class ScenarioFile
         var mageSpells = BuildSpells(mageList, SpellSchool.Mage, firstBit: 1);
         return (mageSpells, BuildSpells(priestList, SpellSchool.Priest, firstBit: 1 + mageSpells.Count));
     }
+
+    /// <summary>
+    /// 魔術師と僧侶の呪文名の表(続いた 2 ブロック)を探す。
+    /// まず迷宮データの直前(#1・#2 の多く)を見て、なければ目次と最初のデータの間を探す
+    /// (Apple II 版の #3 は 1・2 ブロック目にあり、データの並び順が違うので直前の規則が外れる)。
+    /// </summary>
+    private (List<string> Mage, List<string> Priest)? FindSpellTables()
+    {
+        int mazeBlock = BlockOffsets[(int)Zone.Maze];
+        int firstData = BlockOffsets.Where(b => b > 0).DefaultIfEmpty(1).Min();
+        var candidates = new[] { mazeBlock - 2 }.Concat(Enumerable.Range(1, Math.Max(0, firstData - 2)));
+        foreach (int b in candidates.Distinct())
+        {
+            if (b < 1 || b + 1 >= ByteLength / BlockImageExtensions.BlockSize)
+                continue;
+            var mage = ReadSpellBlock(b);
+            var priest = ReadSpellBlock(b + 1);
+            if (LooksLikeSpellTable(mage) && LooksLikeSpellTable(priest))
+                return (mage!, priest!);
+        }
+        return null;
+    }
+
+    /// <summary>呪文名の表らしいか。名前は英大文字だけで、レベル 1〜7 の区切り '*' が 6 つ以上ある。</summary>
+    private static bool LooksLikeSpellTable(List<string>? names) =>
+        names is { Count: >= 7 } &&
+        names.All(n => n.TrimStart('*') is { Length: >= 2 and <= 15 } s && s.All(ch => ch is >= 'A' and <= 'Z')) &&
+        names.Skip(1).Count(n => n.StartsWith('*')) >= 6;
 
     /// <summary>
     /// 呪文名の表を 1 ブロック読む。途中に空の行がある(壊れている)ときは null。

@@ -577,7 +577,7 @@ internal sealed class CharacterEditor : UserControl
             {
                 bool present = i < items.Count;
                 if (present)
-                    SelectValue(_itemCombo[i], items[i].ItemIndex);
+                    SelectValue(_itemCombo[i], items[i].ItemIndex, ItemLabel(items[i].ItemIndex));
                 else
                     _itemCombo[i].SelectedIndex = _itemCombo[i].Items.Count > 0 ? 0 : -1;
                 _itemEquipped[i].Checked = present && items[i].Equipped;
@@ -591,6 +591,15 @@ internal sealed class CharacterEditor : UserControl
             _loading = wasLoading;
         }
         ShowItemDetail(_detailRow);
+    }
+
+    /// <summary>アイテム表にない番号の表示名。1000 が足された番号なら元のアイテム名を出す。</summary>
+    private string? ItemLabel(int number)
+    {
+        if (_scenario == null || !_scenario.IsFlaggedItemNumber(number))
+            return null;
+        var item = _scenario.ResolveItem(number)!;
+        return $"{item.Index:D3} {item.Name} (+1000)";
     }
 
     private void LoadSpellChecks(CheckedListBox list)
@@ -655,7 +664,8 @@ internal sealed class CharacterEditor : UserControl
             _itemDetail.Text = $"持ち物 {row + 1}: (なし)";
             return;
         }
-        var item = _scenario.FindItem(SelectedValue(_itemCombo[row]));
+        int number = SelectedValue(_itemCombo[row]);
+        var item = _scenario.ResolveItem(number);
         if (item == null)
         {
             _itemDetail.Text = $"持ち物 {row + 1}: アイテム表にない番号です。";
@@ -672,6 +682,8 @@ internal sealed class CharacterEditor : UserControl
         sb.Append($"呪文 {spell}  HP 回復 {item.HealPoints}  変化先 {item.ChangeTo}({item.ChangeChance}%)  特殊 {item.Special}");
         if (item.NameNote != null)
             sb.AppendLine().Append(item.NameNote);
+        if (_scenario.IsFlaggedItemNumber(number))
+            sb.AppendLine().Append($"番号は {number}(アイテム {item.Index} に 1000 を足した形)。足す意味は未確認なので、そのまま残します。");
         _itemDetail.Text = sb.ToString();
     }
 

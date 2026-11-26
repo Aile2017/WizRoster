@@ -16,8 +16,8 @@ internal static class UiHelpers
         return cb;
     }
 
-    /// <summary>値の項目を選ぶ。一覧にない値なら「不明」の項目を足して選ぶ。</summary>
-    public static void SelectValue(ComboBox cb, int value)
+    /// <summary>値の項目を選ぶ。一覧にない値なら、<paramref name="unknownLabel"/>(省略時は「不明な値」)の項目を足して選ぶ。</summary>
+    public static void SelectValue(ComboBox cb, int value, string? unknownLabel = null)
     {
         for (int i = cb.Items.Count - 1; i >= 0; i--)
         {
@@ -32,7 +32,7 @@ internal static class UiHelpers
                 return;
             }
         }
-        cb.SelectedIndex = cb.Items.Add(new ValueItem(value, $"{value}: (不明な値)", IsUnknown: true));
+        cb.SelectedIndex = cb.Items.Add(new ValueItem(value, unknownLabel ?? $"{value}: (不明な値)", IsUnknown: true));
     }
 
     public static int SelectedValue(ComboBox cb) => (cb.SelectedItem as ValueItem)?.Value ?? 0;

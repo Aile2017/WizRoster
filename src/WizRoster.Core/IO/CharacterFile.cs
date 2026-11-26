@@ -121,7 +121,7 @@ public static class CharacterFile
             Items = c.GetItems().Select(p => new ItemDto
             {
                 Index = p.ItemIndex,
-                Name = scenario?.FindItem(p.ItemIndex)?.Name,
+                Name = scenario?.ResolveItem(p.ItemIndex)?.Name,
                 Equipped = p.Equipped,
                 Cursed = p.Cursed,
                 Identified = p.Identified,
