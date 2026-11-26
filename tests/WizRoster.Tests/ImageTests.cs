@@ -16,6 +16,9 @@ public class ImageTests : IDisposable
     private static readonly string AppleImage = Environment.GetEnvironmentVariable("WIZROSTER_APPLE2")
         ?? @"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry I 2.dsk";
 
+    private static readonly string PcDosImage = Environment.GetEnvironmentVariable("WIZROSTER_PCDOS")
+        ?? @"C:\usr\games\ROMS\DOS\dsk\SAVE1.DSK";
+
     private readonly string _tempDir = Directory.CreateTempSubdirectory("wizroster-test").FullName;
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
@@ -114,6 +117,63 @@ public class ImageTests : IDisposable
         Assert.Equal("STYX", doc.Characters[6].Name);
         Assert.Equal(3, doc.Characters[6].Race);
         Assert.Equal(154_647, doc.Characters[6].Experience);
+    }
+
+    [Fact]
+    public void PcDos_ReadsNamesFromKrn()
+    {
+        string? path = CopyImage(PcDosImage);
+        if (path == null)
+            return;
+
+        var doc = RosterDocument.Open(path);
+        var s = doc.Scenario;
+        Assert.Equal(46, s.ItemRecordSize);
+        Assert.Equal("ASCII.KRN", s.NameSource);
+        Assert.Equal(101, s.Items.Count);
+        Assert.Equal("LONG SWORD", s.Items[1].Name);
+        Assert.Equal("SWORD", s.Items[1].UnknownName);
+        Assert.Equal(8, s.Items[1].DamageSides);
+        Assert.Equal("MURAMASA BLADE!", s.Items[86].Name);
+        Assert.Equal("POTION OF DIOS", s.Items[15].Name);
+        Assert.NotNull(s.Items[15].NameNote);
+
+        Assert.Equal(21, s.MageSpells.Count);
+        Assert.Equal(29, s.PriestSpells.Count);
+        Assert.Equal("HALITO", s.MageSpells[0].Name);
+        Assert.Equal(1, s.MageSpells[0].Level);
+        Assert.Equal("TILTOWAIT", s.MageSpells[20].Name);
+        Assert.Equal(7, s.MageSpells[20].Level);
+        Assert.Equal("KALKI", s.PriestSpells[0].Name);
+        Assert.Equal(22, s.PriestSpells[0].Bit);
+        Assert.Equal(1, s.PriestSpells[0].Level);
+        Assert.Equal("KADORTO", s.PriestSpells[28].Name);
+        Assert.Equal(7, s.PriestSpells[28].Level);
+
+        Assert.Equal("F1", doc.Characters[0].Name);
+        Assert.Equal(107, doc.Characters[0].Gold);
+    }
+
+    [Fact]
+    public void PcDos_SaveChangesOnlyTheCharacter()
+    {
+        string? path = CopyImage(PcDosImage);
+        if (path == null)
+            return;
+        byte[] before = File.ReadAllBytes(path);
+
+        var doc = RosterDocument.Open(path);
+        doc.Characters[0].Gold = 9999;
+        doc.Save(backup: false);
+
+        byte[] after = File.ReadAllBytes(path);
+        const int recordStart = 120832; // SAVE1.DSK のスロット 0
+        for (int i = 0; i < before.Length; i++)
+        {
+            if (i < recordStart || i >= recordStart + Character.RecordSize)
+                Assert.True(before[i] == after[i], $"位置 {i} が変わっています。");
+        }
+        Assert.Equal(9999, RosterDocument.Open(path).Characters[0].Gold);
     }
 
     [Fact]

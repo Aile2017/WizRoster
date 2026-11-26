@@ -1,4 +1,5 @@
 using WizRoster.Core.Disk;
+using WizRoster.Core.Krn;
 using WizRoster.Core.Model;
 using WizRoster.Core.Scenario;
 
@@ -35,8 +36,24 @@ public sealed class RosterDocument
     public static RosterDocument Open(string path)
     {
         var opened = ImageLoader.Open(path);
-        var scenario = new ScenarioFile(opened.Image, opened.ScenarioEntry);
+        var scenario = new ScenarioFile(opened.Image, opened.ScenarioEntry, LoadMessages(opened));
         return new RosterDocument(path, opened.Image, scenario, opened.Directory.VolumeName);
+    }
+
+    /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>
+    private static KrnMessageFile? LoadMessages(ImageLoader.OpenResult opened)
+    {
+        var entry = opened.Directory.Find(KrnMessageFile.FileName);
+        if (entry == null || entry.LastBlock > opened.Image.BlockCount)
+            return null;
+        try
+        {
+            return new KrnMessageFile(opened.Image.ReadBytes(entry.FirstBlock, 0, entry.BlockLength * BlockImageExtensions.BlockSize));
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
     }
 
     public bool IsDirty(int slot) => !Characters[slot].Raw.AsSpan().SequenceEqual(_saved[slot].Raw);

@@ -37,32 +37,48 @@ public sealed class ItemDef
 
     public bool IsEquipment => Type is >= 0 and <= 4;
 
-    public static ItemDef Parse(int index, ReadOnlySpan<byte> r) => new()
+    /// <summary>名前を除いた部分のバイト数(PC-DOS 版のアイテム表はこの大きさ)。</summary>
+    public const int RecordSizeWithoutNames = RecordSize - 32;
+
+    /// <summary>名前の取得元のメモ(画面表示用)。例: ASCII.KRN の元の表記。</summary>
+    public string? NameNote { get; init; }
+
+    /// <summary>名前付きの 78 バイトのレコード。</summary>
+    public static ItemDef Parse(int index, ReadOnlySpan<byte> r) =>
+        FromBody(index, r[32..], WizBytes.PascalString(r, 0, 15), WizBytes.PascalString(r, 16, 15), null);
+
+    /// <summary>名前なしの 46 バイトのレコード。名前は別の場所から渡す。</summary>
+    public static ItemDef ParseWithoutNames(int index, ReadOnlySpan<byte> body, string name, string unknownName, string? nameNote) =>
+        FromBody(index, body, name, unknownName, nameNote);
+
+    // body はレコードの +32 以降(種類から)。
+    private static ItemDef FromBody(int index, ReadOnlySpan<byte> b, string name, string unknownName, string? nameNote) => new()
     {
         Index = index,
-        Name = WizBytes.PascalString(r, 0, 15),
-        UnknownName = WizBytes.PascalString(r, 16, 15),
-        Type = WizBytes.S16(r, 32),
-        Alignment = WizBytes.S16(r, 34),
-        Cursed = WizBytes.U16(r, 36) != 0,
-        Special = WizBytes.S16(r, 38),
-        ChangeTo = WizBytes.S16(r, 40),
-        ChangeChance = WizBytes.S16(r, 42),
-        Price = WizBytes.WizLong(r, 44),
-        BoltacStock = WizBytes.S16(r, 50),
-        SpellPower = WizBytes.S16(r, 52),
-        ClassUse = WizBytes.U16(r, 54),
-        HealPoints = WizBytes.S16(r, 56),
-        ProtectVs = WizBytes.U16(r, 58),
-        ResistVs = WizBytes.U16(r, 60),
-        ArmorMod = WizBytes.S16(r, 62),
-        HitMod = WizBytes.S16(r, 64),
-        DamageDice = WizBytes.S16(r, 66),
-        DamageSides = WizBytes.S16(r, 68),
-        DamageBonus = WizBytes.S16(r, 70),
-        ExtraSwings = WizBytes.S16(r, 72),
-        CriticalHit = WizBytes.U16(r, 74) != 0,
-        PurposedVs = WizBytes.U16(r, 76),
+        Name = name,
+        UnknownName = unknownName,
+        NameNote = nameNote,
+        Type = WizBytes.S16(b, 0),
+        Alignment = WizBytes.S16(b, 2),
+        Cursed = WizBytes.U16(b, 4) != 0,
+        Special = WizBytes.S16(b, 6),
+        ChangeTo = WizBytes.S16(b, 8),
+        ChangeChance = WizBytes.S16(b, 10),
+        Price = WizBytes.WizLong(b, 12),
+        BoltacStock = WizBytes.S16(b, 18),
+        SpellPower = WizBytes.S16(b, 20),
+        ClassUse = WizBytes.U16(b, 22),
+        HealPoints = WizBytes.S16(b, 24),
+        ProtectVs = WizBytes.U16(b, 26),
+        ResistVs = WizBytes.U16(b, 28),
+        ArmorMod = WizBytes.S16(b, 30),
+        HitMod = WizBytes.S16(b, 32),
+        DamageDice = WizBytes.S16(b, 34),
+        DamageSides = WizBytes.S16(b, 36),
+        DamageBonus = WizBytes.S16(b, 38),
+        ExtraSwings = WizBytes.S16(b, 40),
+        CriticalHit = WizBytes.U16(b, 42) != 0,
+        PurposedVs = WizBytes.U16(b, 44),
     };
 
     public string ClassUseText()

@@ -670,6 +670,8 @@ internal sealed class CharacterEditor : UserControl
         string spell = item.SpellPower > 0 ? _scenario.FindSpell(item.SpellPower)?.Name ?? $"#{item.SpellPower}" : "-";
         sb.AppendLine($"装備できる職業 {item.ClassUseText()}");
         sb.Append($"呪文 {spell}  HP 回復 {item.HealPoints}  変化先 {item.ChangeTo}({item.ChangeChance}%)  特殊 {item.Special}");
+        if (item.NameNote != null)
+            sb.AppendLine().Append(item.NameNote);
         _itemDetail.Text = sb.ToString();
     }
 

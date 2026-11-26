@@ -1,5 +1,6 @@
 using System.Text;
 using WizRoster.Core.Disk;
+using WizRoster.Core.Krn;
 using WizRoster.Core.Model;
 using WizRoster.Core.Ucsd;
 
@@ -24,19 +25,24 @@ public enum Zone
 /// <item>+0 シナリオ名 STRING[40]</item>
 /// <item>+42 RECPER2B[8]: 1024 バイトあたりの件数</item>
 /// <item>+58 RECPERDK[8]: 件数</item>
-/// <item>+74 UNUSEDXX[8]</item>
+/// <item>+74 UNUSEDXX[8]: PC-DOS 版では 1 件のバイト数(キャラクタが 208 のときだけ使う)</item>
 /// <item>+90 BLOFF[8]: ファイル先頭からの開始ブロック</item>
 /// </list>
+/// アイテム表に名前がない版(PC-DOS)では、アイテム名と呪文名を ASCII.KRN から読む。
 /// </summary>
 public sealed class ScenarioFile
 {
     private const int ZoneCount = 8;
     private const int PageSize = 1024;
 
+    // ASCII.KRN のメッセージ番号
+    private const int KrnFirstSpell = 5001;
+    private const int KrnItemBase = 14000; // 14000+2n = 未鑑定名, 14000+2n+1 = 名前
+
     private readonly IBlockImage _image;
     private readonly int _startBlock;
 
-    public ScenarioFile(IBlockImage image, UcsdFileEntry entry)
+    public ScenarioFile(IBlockImage image, UcsdFileEntry entry, KrnMessageFile? messages = null)
     {
         _image = image;
         _startBlock = entry.FirstBlock;
@@ -51,9 +57,20 @@ public sealed class ScenarioFile
         if (RecordsPerPage[(int)Zone.Character] <= 0 || RecordCounts[(int)Zone.Character] is <= 0 or > 100)
             throw new InvalidDataException("SCENARIO.DATA の目次が読めません。");
 
-        Items = LoadItems();
-        (MageSpells, PriestSpells) = LoadSpells();
+        var sizes = ReadArray(toc, 74);
+        ItemRecordSize = sizes[(int)Zone.Character] == Character.RecordSize && sizes[(int)Zone.Item] == ItemDef.RecordSizeWithoutNames
+            ? ItemDef.RecordSizeWithoutNames
+            : ItemDef.RecordSize;
+
+        Items = LoadItems(messages);
+        (MageSpells, PriestSpells) = LoadSpells(messages);
     }
+
+    /// <summary>アイテム 1 件のバイト数(78、名前のない版は 46)。</summary>
+    public int ItemRecordSize { get; }
+
+    /// <summary>アイテム名・呪文名をどこから読んだか(画面表示用)。</summary>
+    public string NameSource { get; private set; } = "SCENARIO.DATA";
 
     public string Title { get; }
     public int ByteLength { get; }
@@ -113,16 +130,34 @@ public sealed class ScenarioFile
         _image.WriteBytes(_startBlock, offset, data);
     }
 
-    private List<ItemDef> LoadItems()
+    private List<ItemDef> LoadItems(KrnMessageFile? messages)
     {
+        bool hasNames = ItemRecordSize == ItemDef.RecordSize;
+        if (!hasNames)
+            NameSource = messages != null ? KrnMessageFile.FileName : "(名前なし)";
+
         int count = RecordCounts[(int)Zone.Item];
         var items = new List<ItemDef>(count);
         for (int i = 0; i < count; i++)
         {
-            int offset = RecordOffset(Zone.Item, i, ItemDef.RecordSize);
-            if (offset + ItemDef.RecordSize > ByteLength)
+            int offset = RecordOffset(Zone.Item, i, ItemRecordSize);
+            if (offset + ItemRecordSize > ByteLength)
                 break;
-            items.Add(ItemDef.Parse(i, Read(offset, ItemDef.RecordSize)));
+            byte[] r = Read(offset, ItemRecordSize);
+            if (hasNames)
+            {
+                items.Add(ItemDef.Parse(i, r));
+                continue;
+            }
+
+            string? rawName = messages?.Get(KrnItemBase + 2 * i + 1);
+            string? rawUnknown = messages?.Get(KrnItemBase + 2 * i);
+            string name = rawName != null ? KrnMessageFile.ExpandAbbreviations(rawName) : $"ITEM {i:D3}";
+            string unknown = rawUnknown != null ? KrnMessageFile.ExpandAbbreviations(rawUnknown) : name;
+            string? note = rawName != null && (rawName != name || rawUnknown != unknown)
+                ? $"{KrnMessageFile.FileName} の表記: {rawName} / {rawUnknown}(略記の展開は推測)"
+                : null;
+            items.Add(ItemDef.ParseWithoutNames(i, r, name, unknown, note));
         }
         return items;
     }
@@ -130,34 +165,68 @@ public sealed class ScenarioFile
     /// <summary>
     /// 呪文名の表。迷宮データの 2 ブロック前が魔術師、1 ブロック前が僧侶。
     /// 名前は 0Dh 区切りで、2 つ目以降のレベルの先頭に '*' が付く。
+    /// アイテム表に名前がない版、または表が読めないときは ASCII.KRN の 5001 番以降を使う。
     /// </summary>
-    private (List<SpellDef>, List<SpellDef>) LoadSpells()
+    private (List<SpellDef>, List<SpellDef>) LoadSpells(KrnMessageFile? messages)
     {
-        int mazeBlock = BlockOffsets[(int)Zone.Maze];
-        var mage = ParseSpellNames(mazeBlock - 2, SpellSchool.Mage, firstBit: 1);
-        var priest = ParseSpellNames(mazeBlock - 1, SpellSchool.Priest, firstBit: 1 + mage.Count);
-        return (mage, priest);
+        if (ItemRecordSize == ItemDef.RecordSize)
+        {
+            int mazeBlock = BlockOffsets[(int)Zone.Maze];
+            var mageNames = ReadSpellBlock(mazeBlock - 2);
+            var priestNames = ReadSpellBlock(mazeBlock - 1);
+            if (mageNames.Count > 0 && priestNames.Count > 0)
+            {
+                var mage = BuildSpells(mageNames, SpellSchool.Mage, firstBit: 1);
+                return (mage, BuildSpells(priestNames, SpellSchool.Priest, firstBit: 1 + mage.Count));
+            }
+        }
+
+        if (messages == null)
+            return ([], []);
+
+        // 5001 番から続けて並ぶ。'*' がレベルの区切りで、レベル 7 の次の '*' から僧侶。
+        var mageList = new List<string>();
+        var priestList = new List<string>();
+        int levelMarks = 0;
+        for (int m = KrnFirstSpell; mageList.Count + priestList.Count < Character.SpellBitCount - 1; m++)
+        {
+            string? name = messages.Get(m);
+            if (string.IsNullOrEmpty(name))
+                break;
+            if (name.StartsWith('*'))
+                levelMarks++;
+            (levelMarks <= 7 ? mageList : priestList).Add(name);
+        }
+        if (mageList.Count + priestList.Count > 0)
+            NameSource = KrnMessageFile.FileName;
+        var mageSpells = BuildSpells(mageList, SpellSchool.Mage, firstBit: 1);
+        return (mageSpells, BuildSpells(priestList, SpellSchool.Priest, firstBit: 1 + mageSpells.Count));
     }
 
-    private List<SpellDef> ParseSpellNames(int block, SpellSchool school, int firstBit)
+    private List<string> ReadSpellBlock(int block)
     {
-        var result = new List<SpellDef>();
         if (block < 1)
-            return result;
+            return [];
         byte[] data = Read(block * BlockImageExtensions.BlockSize, BlockImageExtensions.BlockSize);
         int end = Array.FindIndex(data, b => b != 0x0D && (b < 0x20 || b > 0x7E));
         string text = Encoding.ASCII.GetString(data, 0, end < 0 ? data.Length : end);
+        return text.Split('\r').Where(s => s.Trim('*').Length > 0).ToList();
+    }
+
+    /// <summary>名前の並びから呪文を作る。'*' で次のレベルへ(先頭の '*' はレベル 1 のまま)。</summary>
+    private static List<SpellDef> BuildSpells(IReadOnlyList<string> names, SpellSchool school, int firstBit)
+    {
+        var result = new List<SpellDef>();
         int level = 1;
-        foreach (string part in text.Split('\r'))
+        foreach (string raw in names)
         {
-            string name = part;
+            string name = raw;
             if (name.StartsWith('*'))
             {
-                level++;
+                if (result.Count > 0)
+                    level++;
                 name = name[1..];
             }
-            if (name.Length == 0)
-                continue;
             if (firstBit + result.Count >= Character.SpellBitCount)
                 break;
             result.Add(new SpellDef(school, result.Count, level, name, firstBit + result.Count));
