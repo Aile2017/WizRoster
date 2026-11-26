@@ -17,13 +17,14 @@ public sealed class RosterDocument
     private readonly Character[] _saved;
 
     private RosterDocument(string path, IBlockImage image, ScenarioFile scenario, string volumeName,
-        Character[] characters, IReadOnlyList<DiskChoice> disks)
+        Character[] characters, IReadOnlyList<DiskChoice> disks, GameInfo game)
     {
         FilePath = path;
         Image = image;
         Scenario = scenario;
         VolumeName = volumeName;
         Disks = disks;
+        Game = game;
         _saved = characters;
         Characters = _saved.Select(c => c.Clone()).ToArray();
         EmptyTemplate = _saved.FirstOrDefault(c => c.IsEmpty)?.Clone() ?? Character.CreateBlank();
@@ -34,6 +35,9 @@ public sealed class RosterDocument
     public ScenarioFile Scenario { get; }
     public string VolumeName { get; }
     public Character[] Characters { get; }
+
+    /// <summary>機種とシナリオ。</summary>
+    public GameInfo Game { get; }
 
     /// <summary>同じファイルの中で開けるディスクの一覧(D88 で複数入っているとき)。普通は空か 1 件。</summary>
     public IReadOnlyList<DiskChoice> Disks { get; }
@@ -86,7 +90,7 @@ public sealed class RosterDocument
                 f.Characters.Any(c => !c.IsEmpty), f.Opened.Image.IsWriteProtected))
             .ToList();
         return new RosterDocument(path, chosen.Opened.Image, chosen.Scenario, chosen.Opened.Directory.VolumeName,
-            chosen.Characters, disks);
+            chosen.Characters, disks, GameInfo.Identify(chosen.Opened.Directory, chosen.Scenario));
     }
 
     /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>

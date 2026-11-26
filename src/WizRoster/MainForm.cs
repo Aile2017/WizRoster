@@ -16,6 +16,7 @@ internal sealed class MainForm : Form
     private readonly CharacterEditor _editor = new();
     private readonly Panel _emptyPanel = new() { Dock = DockStyle.Fill };
     private readonly Label _emptyLabel = new() { AutoSize = true, Font = new Font(SystemFonts.MessageBoxFont!.FontFamily, 11f) };
+    private readonly ToolStripStatusLabel _statusGame = new() { Font = new Font("Yu Gothic UI", 9f, FontStyle.Bold) };
     private readonly ToolStripStatusLabel _statusFormat = new();
     private readonly ToolStripStatusLabel _statusPath = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly List<ToolStripItem> _docCommands = [];
@@ -39,7 +40,7 @@ internal sealed class MainForm : Form
         Controls.Add(_tabs);
         Controls.Add(BuildQuickBar());
         Controls.Add(BuildMenu());
-        Controls.Add(new StatusStrip { Items = { _statusFormat, _statusPath } });
+        Controls.Add(new StatusStrip { ShowItemToolTips = true, Items = { _statusGame, _statusFormat, _statusPath } });
 
         DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         DragDrop += (_, e) =>
@@ -185,6 +186,8 @@ internal sealed class MainForm : Form
             _tabs.TabPages.Add(new TabPage());
         _tabs.ResumeLayout();
 
+        _statusGame.Text = doc.Game.DisplayName;
+        _statusGame.ToolTipText = $"機種: {doc.Game.PlatformReason}\nシナリオ: 目次のアイテム数 {doc.Scenario.Items.Count} 件 / 題名「{doc.Scenario.Title}」";
         _statusFormat.Text = $"{doc.Image.FormatName}{(doc.IsReadOnly ? " [書き込み禁止]" : "")} | ボリューム {doc.VolumeName} | " +
                              $"{doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource}";
         _statusPath.Text = doc.FilePath;
@@ -322,7 +325,7 @@ internal sealed class MainForm : Form
         }
         string disk = _doc.Image.DiskLabel != null ? $" {_doc.Image.DiskLabel}" : "";
         string ro = _doc.IsReadOnly ? " [書き込み禁止]" : "";
-        Text = $"{(_doc.IsAnyDirty ? "*" : "")}{Path.GetFileName(_doc.FilePath)}{disk}{ro} - {AppTitle}";
+        Text = $"{(_doc.IsAnyDirty ? "*" : "")}{Path.GetFileName(_doc.FilePath)}{disk}{ro} - {_doc.Game.DisplayName} - {AppTitle}";
     }
 
     private void UpdateCommandState()
