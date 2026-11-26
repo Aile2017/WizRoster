@@ -5,6 +5,9 @@ using WizRoster.Core.Scenario;
 
 namespace WizRoster.Core;
 
+/// <summary>1 つのファイルに入っているディスクのうち、開けるもの(D88 など)。</summary>
+public sealed record DiskChoice(int Index, string Label, bool HasCharacters, bool IsWriteProtected);
+
 /// <summary>
 /// 開いているイメージ 1 つ分の編集状態。編集は <see cref="Characters"/> のコピーに対して行い、
 /// <see cref="Save"/> でイメージに書き戻す。
@@ -13,13 +16,15 @@ public sealed class RosterDocument
 {
     private readonly Character[] _saved;
 
-    private RosterDocument(string path, IBlockImage image, ScenarioFile scenario, string volumeName)
+    private RosterDocument(string path, IBlockImage image, ScenarioFile scenario, string volumeName,
+        Character[] characters, IReadOnlyList<DiskChoice> disks)
     {
         FilePath = path;
         Image = image;
         Scenario = scenario;
         VolumeName = volumeName;
-        _saved = Enumerable.Range(0, scenario.CharacterCount).Select(scenario.ReadCharacter).ToArray();
+        Disks = disks;
+        _saved = characters;
         Characters = _saved.Select(c => c.Clone()).ToArray();
         EmptyTemplate = _saved.FirstOrDefault(c => c.IsEmpty)?.Clone() ?? Character.CreateBlank();
     }
@@ -30,25 +35,58 @@ public sealed class RosterDocument
     public string VolumeName { get; }
     public Character[] Characters { get; }
 
+    /// <summary>同じファイルの中で開けるディスクの一覧(D88 で複数入っているとき)。普通は空か 1 件。</summary>
+    public IReadOnlyList<DiskChoice> Disks { get; }
+
+    /// <summary>書き込み禁止のディスク。編集はできるが保存はできない。</summary>
+    public bool IsReadOnly => Image.IsWriteProtected;
+
     /// <summary>空きスロットに書く内容。開いたイメージの空きスロットの内容を使う。</summary>
     public Character EmptyTemplate { get; }
 
-    public static RosterDocument Open(string path)
+    /// <summary>
+    /// イメージを開く。1 つのファイルに複数のディスクがあるとき(D88)は、
+    /// <paramref name="diskIndex"/> を指定しなければキャラクタの入っているディスクを選ぶ。
+    /// </summary>
+    public static RosterDocument Open(string path, int? diskIndex = null)
     {
         Exception? lastError = null;
+        var found = new List<(ImageLoader.OpenResult Opened, ScenarioFile Scenario, Character[] Characters)>();
         foreach (var opened in ImageLoader.OpenCandidates(File.ReadAllBytes(path)))
         {
+            if (found.Any(f => f.Opened.Image.DiskIndex == opened.Image.DiskIndex))
+                continue; // そのディスクは読めた候補がもうある
             try
             {
                 var scenario = new ScenarioFile(opened.Image, opened.ScenarioEntry, LoadMessages(opened));
-                return new RosterDocument(path, opened.Image, scenario, opened.Directory.VolumeName);
+                var characters = Enumerable.Range(0, scenario.CharacterCount).Select(scenario.ReadCharacter).ToArray();
+                found.Add((opened, scenario, characters));
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException)
             {
                 lastError = ex; // 古いディレクトリの写しなど。次の候補を試す
             }
         }
-        throw new InvalidDataException(lastError?.Message ?? ImageLoader.NotFoundMessage, lastError);
+        if (found.Count == 0)
+            throw new InvalidDataException(lastError?.Message ?? ImageLoader.NotFoundMessage, lastError);
+
+        var chosen = diskIndex is int wanted
+            ? found.FirstOrDefault(f => f.Opened.Image.DiskIndex == wanted)
+            : found.FirstOrDefault(f => f.Characters.Any(c => !c.IsEmpty));
+        if (chosen.Scenario == null)
+        {
+            if (diskIndex != null)
+                throw new InvalidDataException($"ディスク {diskIndex + 1} は開けません。");
+            chosen = found[0];
+        }
+
+        var disks = found
+            .Where(f => f.Opened.Image.DiskLabel != null)
+            .Select(f => new DiskChoice(f.Opened.Image.DiskIndex, f.Opened.Image.DiskLabel!,
+                f.Characters.Any(c => !c.IsEmpty), f.Opened.Image.IsWriteProtected))
+            .ToList();
+        return new RosterDocument(path, chosen.Opened.Image, chosen.Scenario, chosen.Opened.Directory.VolumeName,
+            chosen.Characters, disks);
     }
 
     /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>
@@ -92,8 +130,12 @@ public sealed class RosterDocument
     /// 保存先が既にあれば、先に「元の名前.bak_日時」としてコピーを残す。
     /// </summary>
     /// <returns>作ったバックアップのパス(作らなかったときは null)。</returns>
+    /// <exception cref="InvalidOperationException">書き込み禁止のディスクのとき。</exception>
     public string? Save(string? path = null, bool backup = true)
     {
+        if (IsReadOnly)
+            throw new InvalidOperationException(
+                $"{Image.DiskLabel ?? "このディスク"}は書き込み禁止(マスターディスク)のため保存できません。");
         path ??= FilePath;
         for (int i = 0; i < Characters.Length; i++)
             Scenario.WriteCharacter(i, Characters[i]);

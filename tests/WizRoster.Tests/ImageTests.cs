@@ -25,6 +25,9 @@ public class ImageTests : IDisposable
     private static string MsxImage(string kind) =>
         Path.Combine(MsxDir, $"MSX_Wizardry I - Proving Grounds of the Mad Overlord({kind} Disk).dsk");
 
+    private static readonly string Pc88Image = Environment.GetEnvironmentVariable("WIZROSTER_PC88")
+        ?? @"C:\usr\games\ROMS\NEC PC-8801\PC88_Wizardry I - Proving Grounds of the Mad Overlord.D88";
+
     private readonly string _tempDir = Directory.CreateTempSubdirectory("wizroster-test").FullName;
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
@@ -250,6 +253,70 @@ public class ImageTests : IDisposable
         Assert.Equal("STYX", c.Name);
         Assert.Equal(2468, c.Gold);
         Assert.Equal(17, c.GetAttribute(0));
+    }
+
+    /// <summary>D88 に 2 枚入っていて、キャラクタのいる 1 枚目(書き込み可)を自動で選ぶこと。</summary>
+    [Fact]
+    public void Pc88_OpensDiskWithCharacters()
+    {
+        string? path = CopyImage(Pc88Image);
+        if (path == null)
+            return;
+
+        var doc = RosterDocument.Open(path);
+        Assert.Equal(0, doc.Image.DiskIndex);
+        Assert.False(doc.IsReadOnly);
+        Assert.Equal(2, doc.Disks.Count);
+        Assert.True(doc.Disks[0].HasCharacters);
+        Assert.False(doc.Disks[1].HasCharacters);
+        Assert.True(doc.Disks[1].IsWriteProtected);
+
+        Assert.Equal(new[] { "FIG1", "FIG2", "PRI1", "THI1", "MAG1", "THI2" }, doc.Characters.Take(6).Select(c => c.Name));
+        Assert.Equal(101, doc.Scenario.Items.Count);
+        Assert.Equal("LONG SWORD", doc.Scenario.Items[1].Name);
+        Assert.Equal(21, doc.Scenario.MageSpells.Count);
+        Assert.Equal(29, doc.Scenario.PriestSpells.Count);
+    }
+
+    [Fact]
+    public void Pc88_SaveChangesOnlyTheCharacterSectors()
+    {
+        string? path = CopyImage(Pc88Image);
+        if (path == null)
+            return;
+        byte[] before = File.ReadAllBytes(path);
+
+        var doc = RosterDocument.Open(path);
+        doc.Characters[0].Gold = 13579;
+        doc.Characters[0].SetAttribute(5, 16);
+        doc.Save(backup: false);
+
+        byte[] after = File.ReadAllBytes(path);
+        Assert.Equal(before.Length, after.Length);
+        var changed = Enumerable.Range(0, before.Length).Where(i => before[i] != after[i]).ToList();
+        Assert.InRange(changed.Count, 1, Character.RecordSize);
+        Assert.All(changed, i => Assert.True(i < before.Length / 2, "2 枚目のディスクが変わっています。"));
+
+        var c = RosterDocument.Open(path).Characters[0];
+        Assert.Equal("FIG1", c.Name);
+        Assert.Equal(13579, c.Gold);
+        Assert.Equal(16, c.GetAttribute(5));
+    }
+
+    [Fact]
+    public void Pc88_WriteProtectedDiskCannotBeSaved()
+    {
+        string? path = CopyImage(Pc88Image);
+        if (path == null)
+            return;
+        byte[] before = File.ReadAllBytes(path);
+
+        var doc = RosterDocument.Open(path, diskIndex: 1);
+        Assert.Equal(1, doc.Image.DiskIndex);
+        Assert.True(doc.IsReadOnly);
+        doc.Characters[0].Name = "X";
+        Assert.Throws<InvalidOperationException>(() => doc.Save());
+        Assert.Equal(before, File.ReadAllBytes(path));
     }
 
     [Fact]

@@ -40,6 +40,23 @@ public static class ImageLoader
 
     private static IEnumerable<IBlockImage> Candidates(byte[] bytes)
     {
+        // D88 はセクタごとに見出しが挟まるので、連続したイメージとしては扱わない(書き込むと見出しを壊す)。
+        var d88 = D88Disk.TryParse(bytes);
+        if (d88 != null)
+        {
+            foreach (var disk in d88)
+            {
+                byte[] linear = disk.ReadLinear(bytes);
+                var firstSectors = new List<int> { 0 };
+                firstSectors.AddRange(ScanDirectoryBases(linear)
+                    .Where(b => b % disk.SectorSize == 0)
+                    .Select(b => (int)(b / disk.SectorSize)));
+                foreach (int first in firstSectors.Distinct())
+                    yield return new D88Image(bytes, disk, first);
+            }
+            yield break;
+        }
+
         if (TryFdiHeader(bytes, out int headerSize, out int cylinderBytes))
         {
             // PC-98 版: ブートセクタがシリンダ 0 を飛ばしてブロックを数える。

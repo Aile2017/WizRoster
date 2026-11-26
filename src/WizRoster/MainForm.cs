@@ -8,7 +8,7 @@ internal sealed class MainForm : Form
 {
     private const string AppTitle = "WizRoster";
     private const string ImageFilter =
-        "ディスクイメージ (*.fdi;*.dsk;*.do;*.po;*.img;*.hdm)|*.fdi;*.dsk;*.do;*.po;*.img;*.hdm|すべてのファイル (*.*)|*.*";
+        "ディスクイメージ (*.fdi;*.d88;*.dsk;*.do;*.po;*.img;*.hdm)|*.fdi;*.d88;*.dsk;*.do;*.po;*.img;*.hdm|すべてのファイル (*.*)|*.*";
     private const string CharacterFilter =
         "キャラクタ 生データ (*.wchr)|*.wchr|キャラクタ JSON (*.json)|*.json";
 
@@ -19,6 +19,7 @@ internal sealed class MainForm : Form
     private readonly ToolStripStatusLabel _statusFormat = new();
     private readonly ToolStripStatusLabel _statusPath = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly List<ToolStripItem> _docCommands = [];
+    private readonly ToolStripMenuItem _diskMenu = new("ディスクの切り替え(&D)") { Enabled = false };
 
     private RosterDocument? _doc;
 
@@ -65,6 +66,8 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(Item("開く(&O)...", Keys.Control | Keys.O, (_, _) => OpenImageDialog(), docCommand: false));
         file.DropDownItems.Add(Item("上書き保存(&S)", Keys.Control | Keys.S, (_, _) => Save(saveAs: false)));
         file.DropDownItems.Add(Item("名前を付けて保存(&A)...", Keys.None, (_, _) => Save(saveAs: true)));
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(_diskMenu);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(Item("終了(&X)", Keys.None, (_, _) => Close(), docCommand: false));
 
@@ -158,14 +161,14 @@ internal sealed class MainForm : Form
             OpenImage(dlg.FileName);
     }
 
-    private void OpenImage(string path)
+    private void OpenImage(string path, int? diskIndex = null)
     {
         if (!ConfirmDiscard())
             return;
         RosterDocument doc;
         try
         {
-            doc = RosterDocument.Open(path);
+            doc = RosterDocument.Open(path, diskIndex);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
         {
@@ -182,18 +185,49 @@ internal sealed class MainForm : Form
             _tabs.TabPages.Add(new TabPage());
         _tabs.ResumeLayout();
 
-        _statusFormat.Text = $"{doc.Image.FormatName} | ボリューム {doc.VolumeName} | {doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource}";
+        _statusFormat.Text = $"{doc.Image.FormatName}{(doc.IsReadOnly ? " [書き込み禁止]" : "")} | ボリューム {doc.VolumeName} | " +
+                             $"{doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource}";
         _statusPath.Text = doc.FilePath;
+        BuildDiskMenu(doc);
         RefreshTitles();
         UpdateCommandState();
         _tabs.SelectedIndex = 0;
         ShowSelectedSlot();
     }
 
+    /// <summary>1 つのファイルに複数のディスクがあるとき(D88)、切り替えのメニューを作る。</summary>
+    private void BuildDiskMenu(RosterDocument doc)
+    {
+        _diskMenu.DropDownItems.Clear();
+        foreach (var disk in doc.Disks)
+        {
+            string text = disk.Label
+                          + (disk.HasCharacters ? "(キャラクタあり)" : "(キャラクタなし)")
+                          + (disk.IsWriteProtected ? " [書き込み禁止]" : "");
+            var item = new ToolStripMenuItem(text) { Checked = disk.Index == doc.Image.DiskIndex };
+            int index = disk.Index;
+            item.Click += (_, _) =>
+            {
+                if (_doc != null && index != _doc.Image.DiskIndex)
+                    OpenImage(_doc.FilePath, index);
+            };
+            _diskMenu.DropDownItems.Add(item);
+        }
+        _diskMenu.Enabled = doc.Disks.Count > 1;
+    }
+
     private void Save(bool saveAs)
     {
         if (_doc == null)
             return;
+        if (_doc.IsReadOnly)
+        {
+            MessageBox.Show(this,
+                $"{_doc.Image.DiskLabel ?? "このディスク"}は書き込み禁止(マスターディスク)のため保存できません。\n" +
+                "キャラクタを残したいときは「書き出し」でファイルに保存できます。",
+                AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         Validate(); // 編集中の欄の値を確定させる
         string path = _doc.FilePath;
         if (saveAs)
@@ -231,6 +265,11 @@ internal sealed class MainForm : Form
     {
         if (_doc == null || !_doc.IsAnyDirty)
             return true;
+        if (_doc.IsReadOnly)
+        {
+            return MessageBox.Show(this, "書き込み禁止のディスクなので、変更は保存できません。変更を破棄してよろしいですか?",
+                AppTitle, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        }
         var r = MessageBox.Show(this, "保存していない変更があります。保存しますか?", AppTitle,
             MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
         if (r == DialogResult.Cancel)
@@ -281,7 +320,9 @@ internal sealed class MainForm : Form
             if (_tabs.TabPages[i].Text != text)
                 _tabs.TabPages[i].Text = text;
         }
-        Text = $"{(_doc.IsAnyDirty ? "*" : "")}{Path.GetFileName(_doc.FilePath)} - {AppTitle}";
+        string disk = _doc.Image.DiskLabel != null ? $" {_doc.Image.DiskLabel}" : "";
+        string ro = _doc.IsReadOnly ? " [書き込み禁止]" : "";
+        Text = $"{(_doc.IsAnyDirty ? "*" : "")}{Path.GetFileName(_doc.FilePath)}{disk}{ro} - {AppTitle}";
     }
 
     private void UpdateCommandState()

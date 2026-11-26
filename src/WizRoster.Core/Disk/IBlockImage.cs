@@ -15,6 +15,15 @@ public interface IBlockImage
     /// <summary>扱えるブロック数。</summary>
     int BlockCount { get; }
 
+    /// <summary>書き込み禁止のディスク(D88 のマスターディスクなど)。保存しない。</summary>
+    bool IsWriteProtected => false;
+
+    /// <summary>1 つのファイルに複数のディスクが入っている形式(D88)で、何枚目か(0 から)。</summary>
+    int DiskIndex => 0;
+
+    /// <summary>ディスクの表示名(複数のディスクが入っている形式のときだけ)。</summary>
+    string? DiskLabel => null;
+
     void ReadBlock(int block, Span<byte> destination);
 
     void WriteBlock(int block, ReadOnlySpan<byte> source);
