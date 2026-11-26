@@ -182,7 +182,7 @@ internal sealed class MainForm : Form
             _tabs.TabPages.Add(new TabPage());
         _tabs.ResumeLayout();
 
-        _statusFormat.Text = $"{doc.Image.FormatName} | ボリューム {doc.VolumeName} | {doc.Scenario.Title} | 名前: {doc.Scenario.NameSource}";
+        _statusFormat.Text = $"{doc.Image.FormatName} | ボリューム {doc.VolumeName} | {doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource}";
         _statusPath.Text = doc.FilePath;
         RefreshTitles();
         UpdateCommandState();

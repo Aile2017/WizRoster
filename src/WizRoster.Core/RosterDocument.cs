@@ -35,9 +35,20 @@ public sealed class RosterDocument
 
     public static RosterDocument Open(string path)
     {
-        var opened = ImageLoader.Open(path);
-        var scenario = new ScenarioFile(opened.Image, opened.ScenarioEntry, LoadMessages(opened));
-        return new RosterDocument(path, opened.Image, scenario, opened.Directory.VolumeName);
+        Exception? lastError = null;
+        foreach (var opened in ImageLoader.OpenCandidates(File.ReadAllBytes(path)))
+        {
+            try
+            {
+                var scenario = new ScenarioFile(opened.Image, opened.ScenarioEntry, LoadMessages(opened));
+                return new RosterDocument(path, opened.Image, scenario, opened.Directory.VolumeName);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException)
+            {
+                lastError = ex; // 古いディレクトリの写しなど。次の候補を試す
+            }
+        }
+        throw new InvalidDataException(lastError?.Message ?? ImageLoader.NotFoundMessage, lastError);
     }
 
     /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>

@@ -13,20 +13,29 @@ public static class ImageLoader
 
     public sealed record OpenResult(IBlockImage Image, UcsdDirectory Directory, UcsdFileEntry ScenarioEntry);
 
+    public const string NotFoundMessage =
+        "SCENARIO.DATA を含む UCSD p-System ボリュームが見つかりませんでした。" +
+        "キャラクタの入ったディスク(シナリオ/ユーザーディスク)を指定してください。";
+
     public static OpenResult Open(string path) => Open(File.ReadAllBytes(path));
 
-    public static OpenResult Open(byte[] bytes)
+    public static OpenResult Open(byte[] bytes) =>
+        OpenCandidates(bytes).FirstOrDefault() ?? throw new InvalidDataException(NotFoundMessage);
+
+    /// <summary>
+    /// SCENARIO.DATA を含むボリュームとして読める候補を、確からしい順に返す。
+    /// 古いディレクトリの写しが残っているディスク(MSX2 版など)があるので、
+    /// 呼び出し側は中身まで読めた候補を採用すること。
+    /// </summary>
+    public static IEnumerable<OpenResult> OpenCandidates(byte[] bytes)
     {
         foreach (var image in Candidates(bytes))
         {
             var dir = UcsdDirectory.TryRead(image);
             var entry = dir?.Find(ScenarioFileName);
             if (dir != null && entry != null && entry.LastBlock <= image.BlockCount)
-                return new OpenResult(image, dir, entry);
+                yield return new OpenResult(image, dir, entry);
         }
-        throw new InvalidDataException(
-            "SCENARIO.DATA を含む UCSD p-System ボリュームが見つかりませんでした。" +
-            "キャラクタの入ったディスク(シナリオ/ユーザーディスク)を指定してください。");
     }
 
     private static IEnumerable<IBlockImage> Candidates(byte[] bytes)

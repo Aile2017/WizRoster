@@ -54,8 +54,13 @@ public sealed class ScenarioFile
         RecordCounts = ReadArray(toc, 58);
         BlockOffsets = ReadArray(toc, 90);
 
-        if (RecordsPerPage[(int)Zone.Character] <= 0 || RecordCounts[(int)Zone.Character] is <= 0 or > 100)
+        int blockCount = ByteLength / BlockImageExtensions.BlockSize;
+        if (RecordsPerPage[(int)Zone.Character] <= 0 || RecordCounts[(int)Zone.Character] is <= 0 or > 100
+            || RecordsPerPage[(int)Zone.Item] <= 0 || RecordCounts[(int)Zone.Item] is <= 0 or > 1000
+            || BlockOffsets.Any(b => b < 0 || b >= blockCount))
+        {
             throw new InvalidDataException("SCENARIO.DATA の目次が読めません。");
+        }
 
         var sizes = ReadArray(toc, 74);
         ItemRecordSize = sizes[(int)Zone.Character] == Character.RecordSize && sizes[(int)Zone.Item] == ItemDef.RecordSizeWithoutNames
@@ -69,8 +74,11 @@ public sealed class ScenarioFile
     /// <summary>アイテム 1 件のバイト数(78、名前のない版は 46)。</summary>
     public int ItemRecordSize { get; }
 
-    /// <summary>アイテム名・呪文名をどこから読んだか(画面表示用)。</summary>
-    public string NameSource { get; private set; } = "SCENARIO.DATA";
+    /// <summary>アイテム名をどこから読んだか(画面表示用)。</summary>
+    public string ItemNameSource { get; private set; } = "SCENARIO.DATA";
+
+    /// <summary>呪文名をどこから読んだか(画面表示用)。</summary>
+    public string SpellNameSource { get; private set; } = "SCENARIO.DATA";
 
     public string Title { get; }
     public int ByteLength { get; }
@@ -134,7 +142,7 @@ public sealed class ScenarioFile
     {
         bool hasNames = ItemRecordSize == ItemDef.RecordSize;
         if (!hasNames)
-            NameSource = messages != null ? KrnMessageFile.FileName : "(名前なし)";
+            ItemNameSource = messages != null ? KrnMessageFile.FileName : "(名前なし)";
 
         int count = RecordCounts[(int)Zone.Item];
         var items = new List<ItemDef>(count);
@@ -174,7 +182,7 @@ public sealed class ScenarioFile
             int mazeBlock = BlockOffsets[(int)Zone.Maze];
             var mageNames = ReadSpellBlock(mazeBlock - 2);
             var priestNames = ReadSpellBlock(mazeBlock - 1);
-            if (mageNames.Count > 0 && priestNames.Count > 0)
+            if (mageNames is { Count: > 0 } && priestNames is { Count: > 0 })
             {
                 var mage = BuildSpells(mageNames, SpellSchool.Mage, firstBit: 1);
                 return (mage, BuildSpells(priestNames, SpellSchool.Priest, firstBit: 1 + mage.Count));
@@ -182,7 +190,10 @@ public sealed class ScenarioFile
         }
 
         if (messages == null)
+        {
+            SpellNameSource = "(名前なし)";
             return ([], []);
+        }
 
         // 5001 番から続けて並ぶ。'*' がレベルの区切りで、レベル 7 の次の '*' から僧侶。
         var mageList = new List<string>();
@@ -197,20 +208,28 @@ public sealed class ScenarioFile
                 levelMarks++;
             (levelMarks <= 7 ? mageList : priestList).Add(name);
         }
-        if (mageList.Count + priestList.Count > 0)
-            NameSource = KrnMessageFile.FileName;
+        SpellNameSource = mageList.Count + priestList.Count > 0 ? KrnMessageFile.FileName : "(名前なし)";
         var mageSpells = BuildSpells(mageList, SpellSchool.Mage, firstBit: 1);
         return (mageSpells, BuildSpells(priestList, SpellSchool.Priest, firstBit: 1 + mageSpells.Count));
     }
 
-    private List<string> ReadSpellBlock(int block)
+    /// <summary>
+    /// 呪文名の表を 1 ブロック読む。途中に空の行がある(壊れている)ときは null。
+    /// MSX2 版のユーザーディスクでは、先頭の名前が 0Dh で上書きされていた。
+    /// </summary>
+    private List<string>? ReadSpellBlock(int block)
     {
         if (block < 1)
-            return [];
+            return null;
         byte[] data = Read(block * BlockImageExtensions.BlockSize, BlockImageExtensions.BlockSize);
         int end = Array.FindIndex(data, b => b != 0x0D && (b < 0x20 || b > 0x7E));
         string text = Encoding.ASCII.GetString(data, 0, end < 0 ? data.Length : end);
-        return text.Split('\r').Where(s => s.Trim('*').Length > 0).ToList();
+        var parts = text.Split('\r').ToList();
+        while (parts.Count > 0 && parts[^1].Length == 0)
+            parts.RemoveAt(parts.Count - 1); // 末尾の区切りは正常
+        if (parts.Any(p => p.Trim('*').Length == 0))
+            return null;
+        return parts;
     }
 
     /// <summary>名前の並びから呪文を作る。'*' で次のレベルへ(先頭の '*' はレベル 1 のまま)。</summary>
