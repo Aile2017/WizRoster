@@ -88,6 +88,7 @@ internal sealed class MainForm : Form
         tools.DropDownItems.Add(Item("僧侶の呪文をすべて覚える", Keys.None, (_, _) => _editor.LearnAllSpells(SpellSchool.Priest)));
         tools.DropDownItems.Add(Item("呪文をすべて忘れる", Keys.None, (_, _) => _editor.ForgetAllSpells()));
         tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add(Item("経験値をレベルに合わせる", Keys.None, (_, _) => _editor.SyncExperienceToLevel()));
         tools.DropDownItems.Add(Item("HP を全回復", Keys.None, (_, _) => _editor.HealFull()));
         tools.DropDownItems.Add(Item("状態を正常にする", Keys.None, (_, _) => _editor.CureStatus()));
         tools.DropDownItems.Add(Item("持ち物をすべて鑑定し、呪いを解く", Keys.None, (_, _) => _editor.IdentifyAndUncurseItems()));
@@ -189,7 +190,8 @@ internal sealed class MainForm : Form
         _statusGame.Text = doc.Game.DisplayName;
         _statusGame.ToolTipText = $"機種: {doc.Game.PlatformReason}\nシナリオ: 目次のアイテム数 {doc.Scenario.Items.Count} 件 / 題名「{doc.Scenario.Title}」";
         _statusFormat.Text = $"{doc.Image.FormatName}{(doc.IsReadOnly ? " [書き込み禁止]" : "")} | ボリューム {doc.VolumeName} | " +
-                             $"{doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource}";
+                             $"{doc.Scenario.Title} | アイテム名: {doc.Scenario.ItemNameSource} | 呪文名: {doc.Scenario.SpellNameSource} | " +
+                             $"種族・職業など: {doc.Scenario.Names.Source}";
         _statusPath.Text = doc.FilePath;
         BuildDiskMenu(doc);
         RefreshTitles();

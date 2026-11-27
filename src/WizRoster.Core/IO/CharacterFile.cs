@@ -95,20 +95,21 @@ public static class CharacterFile
 
     public static CharacterDto ToDto(Character c, ScenarioFile? scenario)
     {
+        var names = scenario?.Names ?? NameTables.Default;
         var dto = new CharacterDto
         {
             Name = c.Name,
             Password = c.Password,
             InMaze = c.InMaze,
             Race = c.Race,
-            RaceName = GameNames.Lookup(GameNames.Races, c.Race),
+            RaceName = names.Race(c.Race),
             Class = c.Class,
-            ClassName = GameNames.Lookup(GameNames.Classes, c.Class),
+            ClassName = names.Class(c.Class),
             Age = c.Age,
             Status = c.Status,
-            StatusName = GameNames.Lookup(GameNames.Statuses, c.Status),
+            StatusName = names.Status(c.Status),
             Alignment = c.Alignment,
-            AlignmentName = GameNames.Lookup(GameNames.Alignments, c.Alignment),
+            AlignmentName = names.Alignment(c.Alignment),
             Attributes = Enumerable.Range(0, 6).Select(c.GetAttribute).ToArray(),
             SavingThrows = Enumerable.Range(0, 5).Select(c.GetSavingThrow).ToArray(),
             Gold = c.Gold,
@@ -137,8 +138,72 @@ public static class CharacterFile
         return dto;
     }
 
+    /// <summary>
+    /// JSON の値が、画面の入力欄と同じ範囲に入っているか確かめる。範囲外があれば、すべて並べて例外にする。
+    /// </summary>
+    /// <exception cref="InvalidDataException">範囲外の値があるとき。</exception>
+    public static void Validate(CharacterDto dto)
+    {
+        var errors = new List<string>();
+        void Range(string name, long value, long min, long max)
+        {
+            if (value < min || value > max)
+                errors.Add($"{name} {value:N0}({min:N0}〜{max:N0})");
+        }
+
+        if (!ValueRanges.IsValidNameText(dto.Name ?? ""))
+            errors.Add($"名前「{dto.Name}」({ValueRanges.NameMaxLength} 文字までの英数字・記号)");
+        if (!ValueRanges.IsValidNameText(dto.Password ?? ""))
+            errors.Add($"パスワード「{dto.Password}」({ValueRanges.NameMaxLength} 文字までの英数字・記号)");
+
+        Range("種族", dto.Race, 0, ValueRanges.IntegerMax);
+        Range("職業", dto.Class, 0, ValueRanges.IntegerMax);
+        Range("状態", dto.Status, 0, ValueRanges.IntegerMax);
+        Range("属性", dto.Alignment, 0, ValueRanges.IntegerMax);
+        Range("年齢", dto.Age, 0, ValueRanges.IntegerMax);
+        Range("レベル", dto.Level, 0, ValueRanges.IntegerMax);
+        Range("最高レベル", dto.MaxLevel, 0, ValueRanges.IntegerMax);
+        Range("HP", dto.Hp, 0, ValueRanges.IntegerMax);
+        Range("最大 HP", dto.HpMax, 0, ValueRanges.IntegerMax);
+        Range("AC", dto.ArmorClass, ValueRanges.IntegerMin, ValueRanges.IntegerMax);
+        Range("所持金", dto.Gold, 0, WizBytes.WizLongMax);
+        Range("経験値", dto.Experience, 0, WizBytes.WizLongMax);
+
+        for (int i = 0; i < dto.Attributes.Length; i++)
+            Range($"能力値 {(i < GameNames.Attributes.Length ? GameNames.Attributes[i] : i.ToString())}", dto.Attributes[i], 0, ValueRanges.Packed5Max);
+        for (int i = 0; i < dto.SavingThrows.Length; i++)
+            Range($"セービングスロー {i + 1}({(i < GameNames.SavingThrows.Length ? GameNames.SavingThrows[i] : "?")})",
+                dto.SavingThrows[i], 0, ValueRanges.Packed5Max);
+        for (int i = 0; i < dto.MageSpellPoints.Length; i++)
+            Range($"魔術師呪文の回数 Lv{i + 1}", dto.MageSpellPoints[i], 0, ValueRanges.SpellPointsMax);
+        for (int i = 0; i < dto.PriestSpellPoints.Length; i++)
+            Range($"僧侶呪文の回数 Lv{i + 1}", dto.PriestSpellPoints[i], 0, ValueRanges.SpellPointsMax);
+
+        if (dto.Items.Count > Character.MaxItems)
+            errors.Add($"持ち物の数 {dto.Items.Count}({Character.MaxItems} 個まで)");
+        for (int i = 0; i < dto.Items.Count; i++)
+            Range($"持ち物 {i + 1} のアイテム番号", dto.Items[i].Index, 0, ValueRanges.IntegerMax);
+        foreach (int bit in dto.Spells)
+            Range("呪文の番号", bit, 0, Character.SpellBitCount - 1);
+
+        foreach (var (key, value) in dto.Extra)
+        {
+            var field = RawFields.Extra.FirstOrDefault(f => $"+{f.Offset}" == key);
+            if (field == null)
+                errors.Add($"Extra の「{key}」(使えるのは {string.Join(", ", RawFields.Extra.Select(f => $"+{f.Offset}"))})");
+            else if (field.Signed)
+                Range($"Extra {key}", value, ValueRanges.IntegerMin, ValueRanges.IntegerMax);
+            else
+                Range($"Extra {key}", value, 0, ushort.MaxValue);
+        }
+
+        if (errors.Count > 0)
+            throw new InvalidDataException("JSON に範囲外の値があります。\n" + string.Join("\n", errors.Select(e => "・" + e)));
+    }
+
     public static Character FromDto(CharacterDto dto)
     {
+        Validate(dto);
         Character c;
         if (!string.IsNullOrEmpty(dto.Raw))
         {
@@ -152,8 +217,8 @@ public static class CharacterFile
             c = Character.CreateBlank();
         }
 
-        c.Name = dto.Name;
-        c.Password = dto.Password;
+        c.Name = dto.Name ?? "";
+        c.Password = dto.Password ?? "";
         c.InMaze = dto.InMaze;
         c.Race = dto.Race;
         c.Class = dto.Class;
@@ -183,11 +248,8 @@ public static class CharacterFile
         }
         foreach (var (key, value) in dto.Extra)
         {
-            if (key.StartsWith('+') && int.TryParse(key[1..], out int offset)
-                && offset % 2 == 0 && offset is >= 0 and < Character.RecordSize)
-            {
-                c.SetWord(offset, value);
-            }
+            var field = RawFields.Extra.First(f => $"+{f.Offset}" == key); // Validate で確認済み
+            c.SetWord(field.Offset, value);
         }
         return c;
     }

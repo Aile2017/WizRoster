@@ -80,7 +80,10 @@ public sealed class Character
     public int GetAttribute(int index) => WizBytes.Packed5(Raw, OffAttrib, CheckIndex(index, 6));
     public void SetAttribute(int index, int value) => WizBytes.SetPacked5(Raw, OffAttrib, CheckIndex(index, 6), value);
 
-    /// <summary>セービングスロー(LUCKSKIL)5 つ。0〜31。</summary>
+    /// <summary>
+    /// セービングスロー(LUCKSKIL)5 つ。0〜31。用途は <see cref="GameNames.SavingThrows"/>
+    /// (0: 毒・麻痺・即死、1: 石化、2: 未使用、3: ブレス・ガス、4: 呪文・罠)。
+    /// </summary>
     public int GetSavingThrow(int index) => WizBytes.Packed5(Raw, OffSaves, CheckIndex(index, 5));
     public void SetSavingThrow(int index, int value) => WizBytes.SetPacked5(Raw, OffSaves, CheckIndex(index, 5), value);
 
@@ -127,6 +130,40 @@ public sealed class Character
     public int Level { get => Word(OffLevel); set => SetWord(OffLevel, value); }
     public int Hp { get => Word(OffHp); set => SetWord(OffHp, value); }
     public int HpMax { get => Word(OffHpMax); set => SetWord(OffHpMax, value); }
+
+    /// <summary>
+    /// +200〜+206(LOSTXYL)。場面で意味が変わる共用の領域(ゲームのプログラムで確認)。
+    /// パーティーにいるとき: +200 = 毒の量。迷宮に置き去りのとき: +200, +202, +204 = 位置 X, Y, 階(−1 は行方不明)。
+    /// +206 は称号のビット。
+    /// </summary>
+    public const int OffLostXyl = 200;
+    public const int OffPoison = OffLostXyl;
+    public const int OffLeftMazeX = OffLostXyl;
+    public const int OffLeftMazeY = OffLostXyl + 2;
+    public const int OffLeftMazeLevel = OffLostXyl + 4;
+    public const int OffAwards = OffLostXyl + 6;
+
+    /// <summary>
+    /// 毒の量(0 = なし)。迷宮を 1 歩進むごとに HP がこの値だけ減り、ステータスに「POISON」と出る。
+    /// 迷宮に置き去りのときは位置 X と同じ場所なので、<see cref="IsLeftInMaze"/> を確かめてから使う。
+    /// </summary>
+    public int Poison { get => SignedWord(OffPoison); set => SetWord(OffPoison, value); }
+
+    /// <summary>
+    /// 迷宮に置き去り(キャンプからの中断や全滅)。+204 の階が 0 でないとき。
+    /// このとき +200〜+204 は毒ではなく位置で、城では「OUT」と表示される。
+    /// </summary>
+    public bool IsLeftInMaze => SignedWord(OffLeftMazeLevel) != 0;
+
+    /// <summary>状態を正常にし、HP が 0 以下なら最大まで戻し、毒を消す(置き去りのときは位置を壊さないよう毒は触らない)。</summary>
+    public void Cure()
+    {
+        Status = 0;
+        if (Hp <= 0)
+            Hp = HpMax;
+        if (!IsLeftInMaze)
+            Poison = 0;
+    }
 
     /// <summary>アーマークラス(符号付き)。</summary>
     public int ArmorClass { get => WizBytes.S16(Raw, OffArmorClass); set => SetWord(OffArmorClass, value); }

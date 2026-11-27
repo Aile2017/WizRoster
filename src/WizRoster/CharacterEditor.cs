@@ -22,40 +22,32 @@ internal sealed class CharacterEditor : UserControl
     private readonly ComboBox _class = EnumCombo(GameNames.Classes);
     private readonly ComboBox _align = EnumCombo(GameNames.Alignments);
     private readonly ComboBox _status = EnumCombo(GameNames.Statuses);
-    private readonly NumericUpDown _age = Num(0, short.MaxValue);
+    private readonly NumericUpDown _age = Num(0, ValueRanges.IntegerMax);
     private readonly Label _ageYears = Label("");
     private readonly CheckBox _inMaze = new() { Text = "迷宮内にいる", AutoSize = true };
-    private readonly NumericUpDown _level = Num(0, short.MaxValue);
-    private readonly NumericUpDown _maxLevel = Num(0, short.MaxValue);
-    private readonly NumericUpDown _hp = Num(0, short.MaxValue);
-    private readonly NumericUpDown _hpMax = Num(0, short.MaxValue);
-    private readonly NumericUpDown _ac = Num(short.MinValue, short.MaxValue);
+    private readonly NumericUpDown _level = Num(0, ValueRanges.IntegerMax);
+    private readonly NumericUpDown _maxLevel = Num(0, ValueRanges.IntegerMax);
+    private readonly NumericUpDown _hp = Num(0, ValueRanges.IntegerMax);
+    private readonly NumericUpDown _hpMax = Num(0, ValueRanges.IntegerMax);
+    private readonly NumericUpDown _ac = Num(ValueRanges.IntegerMin, ValueRanges.IntegerMax);
+    private readonly NumericUpDown _poison = Num(0, ValueRanges.IntegerMax);
+    private readonly Label _poisonNote = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 3) };
     private readonly NumericUpDown _gold = Num(0, WizBytes.WizLongMax, 140);
     private readonly NumericUpDown _exp = Num(0, WizBytes.WizLongMax, 140);
+    private readonly Button _expSync = new() { Text = "レベルに合わせる", AutoSize = true };
+    private readonly Label _expInfo = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 0, 3, 3) };
 
-    private readonly NumericUpDown[] _attrs = Enumerable.Range(0, 6).Select(_ => Num(0, 31, 60)).ToArray();
-    private readonly NumericUpDown[] _saves = Enumerable.Range(0, 5).Select(_ => Num(0, 31, 60)).ToArray();
+    private readonly NumericUpDown[] _attrs = Enumerable.Range(0, 6).Select(_ => Num(0, ValueRanges.Packed5Max, 60)).ToArray();
+    private readonly NumericUpDown[] _saves = Enumerable.Range(0, 5).Select(_ => Num(0, ValueRanges.Packed5Max, 60)).ToArray();
 
     // 持ち物
-    private readonly ComboBox[] _itemCombo = new ComboBox[Character.MaxItems];
-    private readonly CheckBox[] _itemEquipped = new CheckBox[Character.MaxItems];
-    private readonly CheckBox[] _itemCursed = new CheckBox[Character.MaxItems];
-    private readonly CheckBox[] _itemIdentified = new CheckBox[Character.MaxItems];
-    private readonly TextBox _itemDetail = new()
-    {
-        Multiline = true,
-        ReadOnly = true,
-        Height = 80,
-        Dock = DockStyle.Top,
-        ScrollBars = ScrollBars.Vertical,
-    };
-    private int _detailRow;
+    private readonly ItemListEditor _items = new() { Dock = DockStyle.Top };
 
     // 呪文
     private readonly CheckedListBox _mageSpells = new() { CheckOnClick = true, IntegralHeight = false, Height = 220, Width = 180 };
     private readonly CheckedListBox _priestSpells = new() { CheckOnClick = true, IntegralHeight = false, Height = 220, Width = 180 };
-    private readonly NumericUpDown[] _mageSp = Enumerable.Range(0, 7).Select(_ => Num(0, 9, 40)).ToArray();
-    private readonly NumericUpDown[] _priestSp = Enumerable.Range(0, 7).Select(_ => Num(0, 9, 40)).ToArray();
+    private readonly NumericUpDown[] _mageSp = Enumerable.Range(0, 7).Select(_ => Num(0, ValueRanges.SpellPointsMax, 40)).ToArray();
+    private readonly NumericUpDown[] _priestSp = Enumerable.Range(0, 7).Select(_ => Num(0, ValueRanges.SpellPointsMax, 40)).ToArray();
 
     // その他
     private readonly DataGridView _rawGrid = new()
@@ -78,6 +70,7 @@ internal sealed class CharacterEditor : UserControl
         WordWrap = false,
     };
     private readonly ListBox _warnings = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
+    private readonly ToolTip _tips = new() { AutoPopDelay = 20000, InitialDelay = 300 };
 
     public CharacterEditor()
     {
@@ -99,15 +92,13 @@ internal sealed class CharacterEditor : UserControl
         _loading = true;
         try
         {
-            foreach (var cb in _itemCombo)
-            {
-                cb.Items.Clear();
-                cb.Items.Add(new ValueItem(-1, "(なし)"));
-                foreach (var item in scenario.Items)
-                    cb.Items.Add(new ValueItem(item.Index, $"{item.Index:D3} {item.Name}"));
-            }
+            _items.SetScenario(scenario);
             FillSpellList(_mageSpells, scenario.MageSpells);
             FillSpellList(_priestSpells, scenario.PriestSpells);
+            FillEnumCombo(_race, scenario.Names.Races);
+            FillEnumCombo(_class, scenario.Names.Classes);
+            FillEnumCombo(_align, scenario.Names.Alignments);
+            FillEnumCombo(_status, scenario.Names.Statuses);
         }
         finally
         {
@@ -126,6 +117,7 @@ internal sealed class CharacterEditor : UserControl
     public void Unbind()
     {
         _character = null;
+        _items.Bind(null);
         Enabled = false;
     }
 
@@ -152,6 +144,15 @@ internal sealed class CharacterEditor : UserControl
         AfterBulkChange();
     }
 
+    /// <summary>経験値を、今のレベルに必要な最小の値にする。経験値の表がないときは何もしない。</summary>
+    public void SyncExperienceToLevel()
+    {
+        if (_character == null || _scenario?.Experience is not { } table || !ExperienceTable.IsValidClass(_character.Class))
+            return;
+        _character.Experience = table.RequiredExperience(_character.Class, _character.Level);
+        AfterBulkChange();
+    }
+
     public void HealFull()
     {
         if (_character == null)
@@ -164,9 +165,7 @@ internal sealed class CharacterEditor : UserControl
     {
         if (_character == null)
             return;
-        _character.Status = 0;
-        if (_character.Hp <= 0)
-            _character.Hp = _character.HpMax;
+        _character.Cure();
         AfterBulkChange();
     }
 
@@ -233,13 +232,15 @@ internal sealed class CharacterEditor : UserControl
         AddRow(t, "職業", _class);
         AddRow(t, "属性", _align);
         AddRow(t, "状態", _status);
+        AddRow(t, "毒", _poison, _poisonNote);
         AddRow(t, "年齢(週)", _age, _ageYears);
         AddRow(t, "", _inMaze);
         AddRow(t, "レベル", _level, Label("最高"), _maxLevel);
         AddRow(t, "HP", _hp, Label("/"), _hpMax);
         AddRow(t, "AC", _ac);
         AddRow(t, "所持金", _gold);
-        AddRow(t, "経験値", _exp);
+        AddRow(t, "経験値", _exp, _expSync);
+        AddRow(t, "", _expInfo);
         return Group("基本", t);
     }
 
@@ -262,44 +263,19 @@ internal sealed class CharacterEditor : UserControl
             int row = i / 2;
             if (row >= s.RowCount)
                 s.RowCount = row + 1;
-            s.Controls.Add(Label(GameNames.SavingThrows[i]), i % 2 * 2, row);
+            var label = Label(GameNames.SavingThrows[i]);
+            string tip = GameNames.SavingThrowDetails[i] + "\n\n" + GameNames.SavingThrowFormula;
+            _tips.SetToolTip(label, tip);
+            _tips.SetToolTip(_saves[i], tip);
+            s.Controls.Add(label, i % 2 * 2, row);
             s.Controls.Add(_saves[i], i % 2 * 2 + 1, row);
         }
-        var saveGroup = Group("セービングスロー(0〜31。項目の並びは推測)", s);
+        var saveGroup = Group("セービングスロー(小さいほど有利)", s);
+        _tips.SetToolTip(saveGroup, GameNames.SavingThrowFormula);
         return Column(attrGroup, saveGroup);
     }
 
-    private Control BuildItems()
-    {
-        var t = new TableLayoutPanel { ColumnCount = 5, AutoSize = true, Dock = DockStyle.Top };
-        string[] headers = ["#", "アイテム", "装備", "呪い", "鑑定"];
-        for (int c = 0; c < headers.Length; c++)
-            t.Controls.Add(Label(headers[c]), c, 0);
-        for (int i = 0; i < Character.MaxItems; i++)
-        {
-            _itemCombo[i] = new ComboBox
-            {
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Width = 230,
-                MaxDropDownItems = 25,
-                Tag = i,
-            };
-            _itemEquipped[i] = new CheckBox { AutoSize = true, Tag = i, Anchor = AnchorStyles.None };
-            _itemCursed[i] = new CheckBox { AutoSize = true, Tag = i, Anchor = AnchorStyles.None };
-            _itemIdentified[i] = new CheckBox { AutoSize = true, Tag = i, Anchor = AnchorStyles.None };
-            t.Controls.Add(Label((i + 1).ToString()), 0, i + 1);
-            t.Controls.Add(_itemCombo[i], 1, i + 1);
-            t.Controls.Add(_itemEquipped[i], 2, i + 1);
-            t.Controls.Add(_itemCursed[i], 3, i + 1);
-            t.Controls.Add(_itemIdentified[i], 4, i + 1);
-        }
-
-        var panel = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Top };
-        panel.Controls.Add(t);
-        panel.Controls.Add(_itemDetail);
-        _itemDetail.Width = 380;
-        return Group("持ち物(空けた欄は前に詰めます)", panel);
-    }
+    private Control BuildItems() => Group("持ち物(空けた欄は前に詰めます)", _items);
 
     private Control BuildSpells()
     {
@@ -383,8 +359,14 @@ internal sealed class CharacterEditor : UserControl
         _hp.ValueChanged += (_, _) => Apply(c => c.Hp = (int)_hp.Value);
         _hpMax.ValueChanged += (_, _) => Apply(c => c.HpMax = (int)_hpMax.Value);
         _ac.ValueChanged += (_, _) => Apply(c => c.ArmorClass = (int)_ac.Value);
+        _poison.ValueChanged += (_, _) => Apply(c =>
+        {
+            if (!c.IsLeftInMaze)
+                c.Poison = (int)_poison.Value;
+        });
         _gold.ValueChanged += (_, _) => Apply(c => c.Gold = (long)_gold.Value);
         _exp.ValueChanged += (_, _) => Apply(c => c.Experience = (long)_exp.Value);
+        _expSync.Click += (_, _) => SyncExperienceToLevel();
 
         for (int i = 0; i < 6; i++)
         {
@@ -405,21 +387,11 @@ internal sealed class CharacterEditor : UserControl
             p.ValueChanged += (_, _) => Apply(c => c.SetPriestSpellPoints(level, (int)p.Value));
         }
 
-        for (int i = 0; i < Character.MaxItems; i++)
+        _items.ItemsChanged += (_, _) =>
         {
-            int row = i;
-            _itemCombo[i].SelectedIndexChanged += (_, _) =>
-            {
-                if (_loading)
-                    return;
-                ShowItemDetail(row);
-                ApplyItems();
-            };
-            _itemCombo[i].Enter += (_, _) => ShowItemDetail(row);
-            _itemEquipped[i].CheckedChanged += (_, _) => ApplyItems();
-            _itemCursed[i].CheckedChanged += (_, _) => ApplyItems();
-            _itemIdentified[i].CheckedChanged += (_, _) => ApplyItems();
-        }
+            if (!_loading)
+                AfterEdit();
+        };
 
         _mageSpells.ItemCheck += OnSpellCheck;
         _priestSpells.ItemCheck += OnSpellCheck;
@@ -453,25 +425,6 @@ internal sealed class CharacterEditor : UserControl
     {
         UpdateDerived();
         CharacterChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void ApplyItems()
-    {
-        if (_loading || _character == null)
-            return;
-
-        // 「(なし)」の欄は飛ばして前に詰める
-        var items = new List<Possession>();
-        for (int i = 0; i < Character.MaxItems; i++)
-        {
-            if (_itemCombo[i].SelectedIndex <= 0)
-                continue;
-            items.Add(new Possession(_itemEquipped[i].Checked, _itemCursed[i].Checked, _itemIdentified[i].Checked,
-                SelectedValue(_itemCombo[i])));
-        }
-        _character.SetItems(items);
-        LoadItems();
-        AfterEdit();
     }
 
     private void OnSpellCheck(object? sender, ItemCheckEventArgs e)
@@ -555,51 +508,13 @@ internal sealed class CharacterEditor : UserControl
             }
             LoadSpellChecks(_mageSpells);
             LoadSpellChecks(_priestSpells);
-            LoadItems();
+            _items.Bind(c);
         }
         finally
         {
             _loading = false;
         }
         UpdateDerived();
-    }
-
-    private void LoadItems()
-    {
-        if (_character == null)
-            return;
-        bool wasLoading = _loading;
-        _loading = true;
-        try
-        {
-            var items = _character.GetItems();
-            for (int i = 0; i < Character.MaxItems; i++)
-            {
-                bool present = i < items.Count;
-                if (present)
-                    SelectValue(_itemCombo[i], items[i].ItemIndex, ItemLabel(items[i].ItemIndex));
-                else
-                    _itemCombo[i].SelectedIndex = _itemCombo[i].Items.Count > 0 ? 0 : -1;
-                _itemEquipped[i].Checked = present && items[i].Equipped;
-                _itemCursed[i].Checked = present && items[i].Cursed;
-                _itemIdentified[i].Checked = present && items[i].Identified;
-                _itemEquipped[i].Enabled = _itemCursed[i].Enabled = _itemIdentified[i].Enabled = present;
-            }
-        }
-        finally
-        {
-            _loading = wasLoading;
-        }
-        ShowItemDetail(_detailRow);
-    }
-
-    /// <summary>アイテム表にない番号の表示名。1000 が足された番号なら元のアイテム名を出す。</summary>
-    private string? ItemLabel(int number)
-    {
-        if (_scenario == null || !_scenario.IsFlaggedItemNumber(number))
-            return null;
-        var item = _scenario.ResolveItem(number)!;
-        return $"{item.Index:D3} {item.Name} (+1000)";
     }
 
     private void LoadSpellChecks(CheckedListBox list)
@@ -626,6 +541,21 @@ internal sealed class CharacterEditor : UserControl
             return;
 
         _ageYears.Text = $"({c.Age / 52} 歳 {c.Age % 52} 週)";
+
+        // 毒(+200)。迷宮に置き去りのときは同じ場所が位置なので編集させない(「その他」の欄で見られる)
+        bool left = c.IsLeftInMaze;
+        _poison.Enabled = !left;
+        _poisonNote.Text = left ? "(迷宮に置き去り中。+200〜+204 は位置)" : "(0 = なし。1 歩ごとに HP が減る)";
+        bool loadingBefore = _loading;
+        _loading = true;
+        SetNum(_poison, left ? 0 : Math.Max(0, c.Poison));
+        _loading = loadingBefore;
+
+        bool hasTable = _scenario?.Experience != null && ExperienceTable.IsValidClass(c.Class);
+        _expSync.Enabled = hasTable;
+        _expInfo.Text = hasTable
+            ? _scenario!.Experience!.Describe(c.Class, c.Level, c.Experience)
+            : "(経験値の表がないため、レベルとの対応は分かりません)";
 
         bool wasLoading = _loading;
         _loading = true;
@@ -654,37 +584,6 @@ internal sealed class CharacterEditor : UserControl
         if (_warnings.Items.Count == 0)
             _warnings.Items.Add("(なし)");
         _warnings.EndUpdate();
-    }
-
-    private void ShowItemDetail(int row)
-    {
-        _detailRow = row;
-        if (_scenario == null || _itemCombo[row].SelectedIndex <= 0)
-        {
-            _itemDetail.Text = $"持ち物 {row + 1}: (なし)";
-            return;
-        }
-        int number = SelectedValue(_itemCombo[row]);
-        var item = _scenario.ResolveItem(number);
-        if (item == null)
-        {
-            _itemDetail.Text = $"持ち物 {row + 1}: アイテム表にない番号です。";
-            return;
-        }
-        var sb = new StringBuilder();
-        sb.AppendLine($"持ち物 {row + 1}: {item.Name}(未鑑定名 {item.UnknownName})");
-        sb.AppendLine($"種類 {GameNames.Lookup(GameNames.ItemTypes, item.Type)}  属性 {GameNames.Lookup(GameNames.Alignments, item.Alignment)}  " +
-                      $"呪い {(item.Cursed ? "あり" : "なし")}  価格 {item.Price:N0}");
-        sb.AppendLine($"AC {item.ArmorMod:+0;-0;0}  命中 {item.HitMod:+0;-0;0}  ダメージ {item.DamageDice}d{item.DamageSides}{item.DamageBonus:+0;-0;+0}  " +
-                      $"追加攻撃 {item.ExtraSwings}  クリティカル {(item.CriticalHit ? "あり" : "なし")}");
-        string spell = item.SpellPower > 0 ? _scenario.FindSpell(item.SpellPower)?.Name ?? $"#{item.SpellPower}" : "-";
-        sb.AppendLine($"装備できる職業 {item.ClassUseText()}");
-        sb.Append($"呪文 {spell}  HP 回復 {item.HealPoints}  変化先 {item.ChangeTo}({item.ChangeChance}%)  特殊 {item.Special}");
-        if (item.NameNote != null)
-            sb.AppendLine().Append(item.NameNote);
-        if (_scenario.IsFlaggedItemNumber(number))
-            sb.AppendLine().Append($"番号は {number}(アイテム {item.Index} に 1000 を足した形)。足す意味は未確認なので、そのまま残します。");
-        _itemDetail.Text = sb.ToString();
     }
 
     private static string HexDump(byte[] data)

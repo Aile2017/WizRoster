@@ -38,21 +38,37 @@ public static class CharacterRules
         if (c.Alignment is < 1 or > 3)
             w.Add($"属性の値 {c.Alignment} はゲームの範囲外です。");
 
+        // データとして範囲外の値(画面では範囲の端に丸めて表示しているので、ここで知らせる)
+        foreach (var (offset, name) in ValueRanges.NonNegativeIntegers)
+        {
+            int raw = c.Word(offset);
+            if (raw > ValueRanges.IntegerMax)
+                w.Add($"{name}の値 {raw:N0} は範囲外です(0〜{ValueRanges.IntegerMax:N0}。ゲームでは {(short)raw:N0} になります)。" +
+                      $"画面には {ValueRanges.IntegerMax:N0} と表示しています。");
+        }
+        foreach (var (offset, name) in ValueRanges.WizLongs)
+        {
+            if (!ValueRanges.IsValidWizLong(c.Raw, offset))
+                w.Add($"{name}のデータが形式として正しくありません(各ワードは 0〜9,999 のはずが " +
+                      $"{c.Word(offset)}, {c.Word(offset + 2)}, {c.Word(offset + 4)})。画面には範囲内に丸めた値を表示しています。");
+        }
+
         for (int i = 0; i < 6; i++)
         {
             if (c.GetAttribute(i) > 18)
                 w.Add($"{GameNames.Attributes[i]}が 18 を超えています({c.GetAttribute(i)})。");
         }
 
+        var names = scenario.Names;
         if (c.Class is >= 0 and <= 7)
         {
             var (min, align) = ClassRequirements[c.Class];
             var lacking = Enumerable.Range(0, 6).Where(i => c.GetAttribute(i) < min[i])
                 .Select(i => $"{GameNames.Attributes[i]} {min[i]} 以上").ToList();
             if (lacking.Count > 0)
-                w.Add($"{GameNames.Classes[c.Class]}の能力値の条件を満たしていません({string.Join("、", lacking)})。");
+                w.Add($"{names.Class(c.Class)} の能力値の条件を満たしていません({string.Join("、", lacking)})。");
             if (c.Alignment is >= 1 and <= 3 && !align[c.Alignment - 1])
-                w.Add($"{GameNames.Classes[c.Class]}は{GameNames.Alignments[c.Alignment]}にはなれません。");
+                w.Add($"{names.Class(c.Class)} は {names.Alignment(c.Alignment)} にはなれません。");
         }
 
         if (c.Hp > c.HpMax)
@@ -61,6 +77,15 @@ public static class CharacterRules
             w.Add($"レベル({c.Level})が最高レベル({c.MaxLevel})を超えています。");
         if (c.Status >= 5 && c.Hp > 0)
             w.Add("状態が死亡以上なのに HP が残っています。");
+
+        // 経験値がレベルより多いのは、宿屋でまだレベルが上がっていないだけなので警告しない
+        if (scenario.Experience is { } table && ExperienceTable.IsValidClass(c.Class) && c.Level > 1)
+        {
+            int byExp = table.LevelFor(c.Class, c.Experience);
+            if (c.Level > byExp)
+                w.Add($"レベル {c.Level} に必要な経験値は {table.RequiredExperience(c.Class, c.Level):N0} ですが、" +
+                      $"経験値は {c.Experience:N0}(Lv {byExp} 相当)です。");
+        }
 
         CheckItems(c, scenario, w);
         CheckSpells(c, scenario, w);
@@ -87,9 +112,9 @@ public static class CharacterRules
             if (!p.Equipped)
                 continue;
             if (!item.CanBeUsedBy(c.Class))
-                w.Add($"持ち物 {i + 1}: {item.Name} は{GameNames.Lookup(GameNames.Classes, c.Class)}には装備できません。");
+                w.Add($"持ち物 {i + 1}: {item.Name} は {scenario.Names.Class(c.Class)} には装備できません。");
             if (item.Alignment != 0 && item.Alignment != c.Alignment)
-                w.Add($"持ち物 {i + 1}: {item.Name} は属性が{GameNames.Lookup(GameNames.Alignments, item.Alignment)}専用です(装備すると呪われます)。");
+                w.Add($"持ち物 {i + 1}: {item.Name} は属性が {scenario.Names.Alignment(item.Alignment)} 専用です(装備すると呪われます)。");
             if (item.Type is >= 0 and < EquipSlotTypes && ++equippedPerType[item.Type] == 2)
                 w.Add($"{GameNames.ItemTypes[item.Type]}を 2 つ以上装備しています。");
             if (!item.IsEquipment && item.Type != 6)

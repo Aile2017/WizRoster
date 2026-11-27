@@ -8,12 +8,21 @@ internal sealed record ValueItem(int Value, string Text, bool IsUnknown = false)
 
 internal static class UiHelpers
 {
-    public static ComboBox EnumCombo(string[] names, int firstValue = 0, int width = 140)
+    public static ComboBox EnumCombo(IReadOnlyList<string> names, int width = 140)
     {
         var cb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = width };
-        for (int i = firstValue; i < names.Length; i++)
-            cb.Items.Add(new ValueItem(i, $"{i}: {names[i]}"));
+        FillEnumCombo(cb, names);
         return cb;
+    }
+
+    /// <summary>「値: 名前」の項目を入れ直す(ディスクごとに名前が変わるため)。</summary>
+    public static void FillEnumCombo(ComboBox cb, IReadOnlyList<string> names)
+    {
+        cb.BeginUpdate();
+        cb.Items.Clear();
+        for (int i = 0; i < names.Count; i++)
+            cb.Items.Add(new ValueItem(i, $"{i}: {names[i]}"));
+        cb.EndUpdate();
     }
 
     /// <summary>値の項目を選ぶ。一覧にない値なら、<paramref name="unknownLabel"/>(省略時は「不明な値」)の項目を足して選ぶ。</summary>

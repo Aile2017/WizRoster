@@ -69,6 +69,22 @@ public sealed class ScenarioFile
 
         Items = LoadItems(messages);
         (MageSpells, PriestSpells) = LoadSpells(messages);
+        Experience = LoadExperience();
+        Names = NameTables.Load(toc, messages);
+    }
+
+    /// <summary>種族・職業・状態・属性の名前(ディスクにあるもの)。</summary>
+    public NameTables Names { get; }
+
+    /// <summary>職業ごとの、レベルに必要な経験値の表。読めなければ null。</summary>
+    public ExperienceTable? Experience { get; }
+
+    private ExperienceTable? LoadExperience()
+    {
+        int offset = BlockOffsets[(int)Zone.Experience] * BlockImageExtensions.BlockSize;
+        if (offset <= 0 || offset + ExperienceTable.ByteLength > ByteLength)
+            return null;
+        return ExperienceTable.TryParse(Read(offset, ExperienceTable.ByteLength));
     }
 
     /// <summary>アイテム 1 件のバイト数(78、名前のない版は 46)。</summary>

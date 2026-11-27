@@ -81,11 +81,12 @@ public sealed class ItemDef
         PurposedVs = WizBytes.U16(b, 44),
     };
 
-    public string ClassUseText()
+    /// <summary>装備できる職業の一覧。<paramref name="classNames"/> は職業の名前(ディスクにあるもの)。</summary>
+    public string ClassUseText(IReadOnlyList<string> classNames)
     {
         if ((ClassUse & 0xFF) == 0xFF)
             return "全職業";
-        var names = Enumerable.Range(0, GameNames.Classes.Length).Where(CanBeUsedBy).Select(i => GameNames.Classes[i]).ToList();
+        var names = Enumerable.Range(0, classNames.Count).Where(CanBeUsedBy).Select(i => classNames[i]).ToList();
         return names.Count == 0 ? "なし" : string.Join("・", names);
     }
 
