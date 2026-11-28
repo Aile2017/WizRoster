@@ -37,6 +37,31 @@ public static class GameNames
     /// <summary>アイテムの種類(TOBJTYPE)。</summary>
     public static readonly string[] ItemTypes = ["武器", "鎧", "盾", "兜", "小手", "特殊", "その他"];
 
+    /// <summary>モンスターの種族(0〜13)。アイテムの倍打・防御の対象のビットも同じ番号。</summary>
+    public static readonly string[] MonsterClasses =
+        ["戦士", "魔術師", "僧侶", "盗賊", "小人", "巨人", "神話", "竜", "動物", "獣人", "不死", "悪魔", "昆虫", "魔法生物"];
+
+    /// <summary>ブレスの種類(0 = なし)。抵抗のビットと同じ番号。</summary>
+    public static readonly string[] Breaths = ["なし", "炎", "冷気", "毒", "レベル吸収", "石化"];
+
+    /// <summary>抵抗のビット(WEPVSTY3)。1〜5 はブレスと同じ番号。0 と 6 の意味は確かめていない。</summary>
+    public static readonly string[] ResistBits = ["ビット0(不明)", "炎", "冷気", "毒", "レベル吸収", "石化", "ビット6(呪文?)"];
+
+    /// <summary>モンスターの特殊能力のビット(SPPC)。</summary>
+    public static readonly string[] MonsterSpecials = ["石化", "毒", "麻痺", "クリティカル", "眠る", "逃げる", "仲間を呼ぶ"];
+
     public static string Lookup(string[] names, int value) =>
         value >= 0 && value < names.Length ? names[value] : $"不明({value})";
+
+    /// <summary>ビット列を名前の並びにする。名前のないビットは「ビット n」。何もなければ「なし」。</summary>
+    public static string BitNames(int bits, string[] names)
+    {
+        var list = new List<string>();
+        for (int i = 0; i < 16; i++)
+        {
+            if ((bits & (1 << i)) != 0)
+                list.Add(i < names.Length ? names[i] : $"ビット{i}");
+        }
+        return list.Count == 0 ? "なし" : string.Join("・", list);
+    }
 }

@@ -38,6 +38,7 @@ public sealed class ScenarioFile
     // ASCII.KRN のメッセージ番号
     private const int KrnFirstSpell = 5001;
     private const int KrnItemBase = 14000; // 14000+2n = 未鑑定名, 14000+2n+1 = 名前
+    private const int KrnMonsterBase = 13000; // 13000+4n から 不確定名・その複数形・名前・その複数形
 
     private readonly IBlockImage _image;
     private readonly int _startBlock;
@@ -68,6 +69,7 @@ public sealed class ScenarioFile
             : ItemDef.RecordSize;
 
         Items = LoadItems(messages);
+        Monsters = LoadMonsters(messages);
         (MageSpells, PriestSpells) = LoadSpells(messages);
         Experience = LoadExperience();
         Names = NameTables.Load(toc, messages);
@@ -103,6 +105,9 @@ public sealed class ScenarioFile
     public IReadOnlyList<int> BlockOffsets { get; }
 
     public IReadOnlyList<ItemDef> Items { get; }
+
+    /// <summary>モンスターの表。読めなければ空。</summary>
+    public IReadOnlyList<MonsterDef> Monsters { get; }
     public IReadOnlyList<SpellDef> MageSpells { get; }
     public IReadOnlyList<SpellDef> PriestSpells { get; }
 
@@ -218,6 +223,37 @@ public sealed class ScenarioFile
             items.Add(ItemDef.ParseWithoutNames(i, r, name, unknown, note));
         }
         return items;
+    }
+
+    /// <summary>
+    /// モンスターの表(区分 ZENEMY)。名前のない版(アイテムが 46 バイトの版)は 94 バイトで、名前は ASCII.KRN の 13000 + 4n から。
+    /// </summary>
+    private List<MonsterDef> LoadMonsters(KrnMessageFile? messages)
+    {
+        bool hasNames = ItemRecordSize == ItemDef.RecordSize;
+        int size = hasNames ? MonsterDef.RecordSize : MonsterDef.RecordSizeWithoutNames;
+        int z = (int)Zone.Enemy;
+        var monsters = new List<MonsterDef>();
+        if (RecordsPerPage[z] <= 0 || RecordsPerPage[z] * size > PageSize || RecordCounts[z] is <= 0 or > 1000)
+            return monsters;
+
+        for (int i = 0; i < RecordCounts[z]; i++)
+        {
+            int offset = RecordOffset(Zone.Enemy, i, size);
+            if (offset + size > ByteLength)
+                break;
+            byte[] r = Read(offset, size);
+            if (hasNames)
+            {
+                monsters.Add(MonsterDef.Parse(i, r));
+                continue;
+            }
+            string Name(int k) => messages?.Get(KrnMonsterBase + 4 * i + k) is string n
+                ? KrnMessageFile.ExpandAbbreviations(n)
+                : $"MONSTER {i:D3}";
+            monsters.Add(MonsterDef.ParseWithoutNames(i, r, Name(0), Name(1), Name(2), Name(3)));
+        }
+        return monsters;
     }
 
     /// <summary>

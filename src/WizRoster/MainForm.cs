@@ -23,6 +23,7 @@ internal sealed class MainForm : Form
     private readonly ToolStripMenuItem _diskMenu = new("ディスクの切り替え(&D)") { Enabled = false };
 
     private RosterDocument? _doc;
+    private GameDataDialog? _gameData;
 
     public MainForm(string? initialPath)
     {
@@ -95,7 +96,11 @@ internal sealed class MainForm : Form
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(Item("ボルタック商店の在庫(&B)...", Keys.None, (_, _) => EditBoltacStock()));
 
-        menu.Items.AddRange(file, chr, tools);
+        var view = new ToolStripMenuItem("表示(&V)");
+        view.DropDownItems.Add(Item("アイテム一覧(&I)...", Keys.F7, (_, _) => ShowGameData(GameDataDialog.Page.Items)));
+        view.DropDownItems.Add(Item("モンスター一覧(&M)...", Keys.F8, (_, _) => ShowGameData(GameDataDialog.Page.Monsters)));
+
+        menu.Items.AddRange(file, chr, tools, view);
         MainMenuStrip = menu;
         return menu;
     }
@@ -181,6 +186,7 @@ internal sealed class MainForm : Form
         }
 
         _doc = doc;
+        _gameData?.Close(); // 前のディスクの一覧は閉じる
         _editor.SetScenario(doc.Scenario);
 
         _tabs.SuspendLayout();
@@ -474,6 +480,21 @@ internal sealed class MainForm : Form
         }
         _doc.ClearSlot(CurrentSlot);
         AfterSlotChange();
+    }
+
+    /// <summary>アイテム・モンスターの一覧(読み取り専用)。開いたまま編集を続けられる。</summary>
+    private void ShowGameData(GameDataDialog.Page page)
+    {
+        if (_doc == null)
+            return;
+        if (_gameData == null || _gameData.IsDisposed)
+        {
+            _gameData = new GameDataDialog(_doc) { Owner = this };
+            _gameData.FormClosed += (_, _) => _gameData = null;
+            _gameData.Show();
+        }
+        _gameData.ShowPage(page);
+        _gameData.Activate();
     }
 
     private void EditBoltacStock()
