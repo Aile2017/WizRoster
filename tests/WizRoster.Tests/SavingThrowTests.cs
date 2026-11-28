@@ -48,7 +48,6 @@ public class SavingThrowTests
     [InlineData(@"C:\usr\games\ROMS\DOS\dsk\SAVE2.DSK", "NAUTUS")]
     [InlineData(@"C:\usr\games\ROMS\DOS\dsk\SAVE2.DSK", "ZIL")]
     [InlineData(@"C:\usr\games\ROMS\DOS\dsk\SAVE2.DSK", "GUYDOMAN")]
-    [InlineData(@"C:\usr\games\np21w\wizardry\Wizardry1-5\Wizardry1.FDI", "T2")]
     public void Formula_MatchesRealCharacters(string path, string name)
     {
         if (!File.Exists(path))

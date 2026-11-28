@@ -11,7 +11,7 @@ UCSD p-System 版 Wizardry #1〜#3(PC-98・PC-DOS・MSX2・Apple II・PC-8801)�
 | [03-character-record.md](analysis/03-character-record.md) | キャラクタのレコード(208 バイト)の全項目 |
 | [04-items-and-spells.md](analysis/04-items-and-spells.md) | アイテムのレコード(78 / 46 バイト)、#1 のアイテムと呪文の一覧、機種間の比較 |
 | [05-ascii-krn.md](analysis/05-ascii-krn.md) | アスキー移植版のメッセージファイル `ASCII.KRN` の構造と暗号 |
-| [06-game-program.md](analysis/06-game-program.md) | ゲーム本体(p-code)の解析: セービングスロー、毒、迷宮への置き去りなど |
+| [06-game-program.md](analysis/06-game-program.md) | ゲーム本体(p-code)の解析: セービングスロー、毒、迷宮への置き去り、呪文の回数、レベルアップの HP など |
 | [07-verification.md](analysis/07-verification.md) | ゲームで確かめたこと、テストで確かめたこと、まだ分かっていないこと |
 
 確かさの表し方(各文書で共通):

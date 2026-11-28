@@ -130,8 +130,19 @@ internal sealed class CharacterEditor : UserControl
     {
         if (_character == null || _scenario == null)
             return;
-        foreach (var s in school == SpellSchool.Mage ? _scenario.MageSpells : _scenario.PriestSpells)
+        var spells = school == SpellSchool.Mage ? _scenario.MageSpells : _scenario.PriestSpells;
+        foreach (var s in spells)
             _character.SetKnowsSpell(s.Bit, true);
+
+        // 回数も、ゲームがこの職業・レベルで計算する値にする
+        var points = SpellPoints.Compute(_character, school, spells);
+        for (int lv = 1; lv <= 7; lv++)
+        {
+            if (school == SpellSchool.Mage)
+                _character.SetMageSpellPoints(lv, points[lv - 1]);
+            else
+                _character.SetPriestSpellPoints(lv, points[lv - 1]);
+        }
         AfterBulkChange();
     }
 
@@ -291,11 +302,11 @@ internal sealed class CharacterEditor : UserControl
             sp.Controls.Add(Label($"Lv{lv + 1}"), lv + 1, 0);
         sp.Controls.Add(Label("魔術師"), 0, 1);
         sp.Controls.Add(Label("僧侶"), 0, 2);
+        // タブ順は追加した順になるので、魔術師の Lv1〜7 を先に、続けて僧侶の Lv1〜7
         for (int lv = 0; lv < 7; lv++)
-        {
             sp.Controls.Add(_mageSp[lv], lv + 1, 1);
+        for (int lv = 0; lv < 7; lv++)
             sp.Controls.Add(_priestSp[lv], lv + 1, 2);
-        }
 
         var note = Label("※ 回数はゲームが覚えている呪文とレベルから計算し直すことがあります。");
         note.ForeColor = SystemColors.GrayText;
