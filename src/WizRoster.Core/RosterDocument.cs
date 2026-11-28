@@ -43,7 +43,7 @@ public sealed class RosterDocument
     /// <summary>ボルタック商店の在庫数(アイテム番号ごと。−1 = 無限、0 = 店に並ばない)。編集用のコピー。</summary>
     public int[] BoltacStock { get; }
 
-    /// <summary>モンスターの絵(読める形式のときだけ。PC-DOS 版はまだ読めない)。</summary>
+    /// <summary>モンスターの絵(読める形式のときだけ)。</summary>
     public MonsterPictures? MonsterPictures { get; }
 
     /// <summary>機種とシナリオ。</summary>

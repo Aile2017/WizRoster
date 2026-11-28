@@ -80,11 +80,21 @@ public class MonsterPictureTests
     }
 
     [Theory]
-    [InlineData(PcDos)] // 200.MONSTERS は別の形式(圧縮されているらしい)
-    public void OtherFormats_AreNotMisread(string path)
+    [InlineData(PcDos)]
+    [InlineData(@"C:\usr\games\ROMS\DOS\dsk\WIZ1.DSK")]
+    public void PcDos_ReadsCgaPictures(string path)
     {
         if (!File.Exists(path))
             return;
-        Assert.Null(RosterDocument.Open(path).MonsterPictures);
+        var doc = RosterDocument.Open(path);
+        var pictures = doc.MonsterPictures;
+        Assert.NotNull(pictures);
+        Assert.Equal("200.MONSTERS", pictures!.Source);
+        Assert.Equal(32, pictures.Count);
+        Assert.Equal(1, pictures.FirstNumber);
+        Assert.All(doc.Scenario.Monsters, m => Assert.NotNull(pictures.Get(m.Picture)));
+        var pic = pictures.Get(doc.Scenario.Monsters[0].Picture)!;
+        Assert.Equal((48, 40, 1), (pic.Width, pic.Height, pic.PixelAspect));
+        Assert.True(pic.Pixels.Count(p => p != 0) > 200);
     }
 }

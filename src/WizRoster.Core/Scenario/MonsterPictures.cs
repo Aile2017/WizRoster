@@ -14,6 +14,7 @@ public sealed record MonsterPicture(int Width, int Height, byte[] Pixels, (byte 
 /// <list type="bullet">
 /// <item>PC-98・PC-8801 版: <c>400.MONSTERS</c>(96×80)/ <c>200.MONSTERS</c>(96×40)。絵の番号 n(1 から)が n 枚目</item>
 /// <item>MSX2 版: <c>200.MONSTERS</c>。1 枚 72×40 ドット、16 色(1 ドット 4 ビット)。絵の番号 n(1 から)が n 枚目</item>
+/// <item>PC-DOS 版: <c>200.MONSTERS</c>。1 枚 512 バイト、48×40 ドットの CGA 4 色。絵の番号 n(1 から)が n 枚目</item>
 /// <item>Apple II 版: SCENARIO.DATA の区分 6。1 枚 512 バイトの高解像度の絵(#1・#2 は 70×50、#3 は文字で組んだ 70×48)。絵の番号 n(0 から)が n 件目</item>
 /// </list>
 /// </summary>
@@ -49,6 +50,7 @@ public sealed class MonsterPictures
     public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image, ScenarioFile scenario, GameInfo game) =>
         TileFile.Load(directory, image)
         ?? (game.Platform == "MSX2" ? Msx4Bit.Load(directory, image) : null)
+        ?? (game.Platform == "PC-DOS" ? CgaCells.Load(directory, image) : null)
         ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario, game.Scenario) : null);
 
     // ---- PC-98・PC-8801 版 ----
@@ -201,6 +203,60 @@ public sealed class MonsterPictures
                 }
             }
             return new MonsterPicture(Width, Height, pixels, Palette, 2);
+        }
+    }
+
+    // ---- PC-DOS 版 ----
+
+    /// <summary>
+    /// <c>200.MONSTERS</c>。1 ブロック(512 バイト)に 1 枚で、絵の番号 n が n − 1 ブロック目
+    /// (SYSTEM.INTERP の画面ドライバが 1 枚ずつ 1 ブロックを読む)。
+    /// 1 枚は 8×8 ドットのセルを横 6 × 縦 5 に並べたもの(左上から横へ)。1 セル 16 バイトで、1 行 2 バイト。
+    /// 1 バイトに 4 ドット(上位 2 ビットが左)の CGA 4 色。30 セル(480 バイト)のあとの 32 バイトは使わない。
+    /// 色は CGA のパレット 1(黒・シアン・マゼンタ・白。ドライバが INT 10h AH=0Bh BX=0101h で選ぶ)。
+    /// </summary>
+    private static class CgaCells
+    {
+        private const string FileName = "200.MONSTERS";
+        private const int Slot = 512;
+        private const int CellsAcross = 6;
+        private const int CellsDown = 5;
+        private const int CellBytes = 16;
+        private const int Width = CellsAcross * 8;
+        private const int Height = CellsDown * 8;
+
+        private static readonly (byte, byte, byte)[] Palette =
+        [
+            (0, 0, 0), (85, 255, 255), (255, 85, 255), (255, 255, 255),
+        ];
+
+        public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image)
+        {
+            var entry = directory.Find(FileName);
+            if (entry == null || entry.LastBlock > image.BlockCount)
+                return null;
+            byte[] data = image.ReadBytes(entry.FirstBlock, 0, entry.BlockLength * BlockImageExtensions.BlockSize);
+            if (data.Length == 0 || data.Length % Slot != 0)
+                return null;
+            return new MonsterPictures(FileName, data.Length / Slot, 1, k => Decode(data, k * Slot));
+        }
+
+        private static MonsterPicture Decode(byte[] data, int start)
+        {
+            var pixels = new byte[Width * Height];
+            for (int c = 0; c < CellsAcross * CellsDown; c++)
+            {
+                int cx = c % CellsAcross, cy = c / CellsAcross;
+                for (int row = 0; row < 8; row++)
+                {
+                    for (int x = 0; x < 8; x++)
+                    {
+                        byte b = data[start + c * CellBytes + row * 2 + x / 4];
+                        pixels[(cy * 8 + row) * Width + cx * 8 + x] = (byte)((b >> (6 - 2 * (x % 4))) & 3);
+                    }
+                }
+            }
+            return new MonsterPicture(Width, Height, pixels, Palette, 1);
         }
     }
 
