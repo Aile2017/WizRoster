@@ -41,9 +41,10 @@ public class MonsterPictureTests
     }
 
     [Theory]
-    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry I 2.dsk", 20)]
-    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry II 2.dsk", 30)]
-    public void AppleII_ReadsHiresPictures(string path, int count)
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry I 2.dsk", 20, 50)]
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry II 2.dsk", 30, 50)]
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry III 2.dsk", 30, 48)] // 文字で組んだ絵
+    public void AppleII_ReadsHiresPictures(string path, int count, int height)
     {
         if (!File.Exists(path))
             return;
@@ -55,7 +56,7 @@ public class MonsterPictureTests
         Assert.Equal(0, pictures.FirstNumber);
         Assert.All(doc.Scenario.Monsters, m => Assert.NotNull(pictures.Get(m.Picture)));
         var pic = pictures.Get(doc.Scenario.Monsters[0].Picture)!;
-        Assert.Equal((70, 50, 1), (pic.Width, pic.Height, pic.PixelAspect));
+        Assert.Equal((70, height, 1), (pic.Width, pic.Height, pic.PixelAspect));
         Assert.True(pic.Pixels.Count(p => p != 0) > 200);
     }
 
@@ -79,7 +80,6 @@ public class MonsterPictureTests
     }
 
     [Theory]
-    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry III 2.dsk")] // 区分 6 は別の形式
     [InlineData(PcDos)] // 200.MONSTERS は別の形式(圧縮されているらしい)
     public void OtherFormats_AreNotMisread(string path)
     {

@@ -14,7 +14,7 @@ public sealed record MonsterPicture(int Width, int Height, byte[] Pixels, (byte 
 /// <list type="bullet">
 /// <item>PC-98・PC-8801 版: <c>400.MONSTERS</c>(96×80)/ <c>200.MONSTERS</c>(96×40)。絵の番号 n(1 から)が n 枚目</item>
 /// <item>MSX2 版: <c>200.MONSTERS</c>。1 枚 72×40 ドット、16 色(1 ドット 4 ビット)。絵の番号 n(1 から)が n 枚目</item>
-/// <item>Apple II 版: SCENARIO.DATA の区分 6。1 枚 512 バイトの高解像度の絵(70×50)。絵の番号 n(0 から)が n 件目</item>
+/// <item>Apple II 版: SCENARIO.DATA の区分 6。1 枚 512 バイトの高解像度の絵(#1・#2 は 70×50、#3 は文字で組んだ 70×48)。絵の番号 n(0 から)が n 件目</item>
 /// </list>
 /// </summary>
 public sealed class MonsterPictures
@@ -49,7 +49,7 @@ public sealed class MonsterPictures
     public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image, ScenarioFile scenario, GameInfo game) =>
         TileFile.Load(directory, image)
         ?? (game.Platform == "MSX2" ? Msx4Bit.Load(directory, image) : null)
-        ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario) : null);
+        ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario, game.Scenario) : null);
 
     // ---- PC-98・PC-8801 版 ----
 
@@ -207,18 +207,26 @@ public sealed class MonsterPictures
     // ---- Apple II 版 ----
 
     /// <summary>
-    /// SCENARIO.DATA の区分 6(ZSPCCHRS)。1 件 512 バイトに、1 行 10 バイト × 50 行の高解像度の絵(70×50 ドット)。
-    /// 1 バイト 7 ドット(下位ビットが左)、最上位ビットは色の組(0 = 紫・緑、1 = 青・橙)。
+    /// SCENARIO.DATA の区分 6(ZSPCCHRS)。1 件 512 バイトの高解像度の絵。1 バイト 7 ドット(下位ビットが左)、
+    /// 最上位ビットは色の組(0 = 紫・緑、1 = 青・橙)。
+    /// <list type="bullet">
+    /// <item>#1・#2: 1 行 10 バイト × 50 行(70×50 ドット)。残り 12 バイトは 0。戦闘の始めに高解像度画面へそのまま描く(CINIT p5)</item>
+    /// <item>#3: 文字 60 個分(1 文字 7×8 ドット = 8 バイト)。横 10 × 縦 6 文字に並べて 70×48 ドット。
+    /// 512 バイトを文字の形として $0A00 に写し、画面の (13, 9) から文字コード 192 から順に書く(COMBAT p1・p3)。
+    /// 文字の 8 バイトは下の行から並ぶ(文字を描く WIZARDRY p36 が 8 バイト目から逆順に上の行へ書く)</item>
+    /// </list>
     /// 色は NTSC の擬似カラーをまねる: 隣と続くドットは白、単独のドットは列の偶奇と色の組で決まる色、
-    /// 同じ組の色ドットに挟まれた 1 ドットの隙間はその色で埋める。偶奇は絵が自然な色になる向き(スライムが緑)に合わせた。
+    /// 同じ組の色ドットに挟まれた 1 ドットの隙間はその色で埋める。偶奇は絵が自然な色になる向き
+    /// (#1・#2 はスライムが緑、#3 は大蛇が緑)に合わせた。
     /// </summary>
     private static class AppleHires
     {
         private const int RecordSize = 512;
         private const int BytesPerRow = 10;
         private const int Width = BytesPerRow * 7;
-        private const int Height = 50;
-        private const int Phase = 1;
+        private const int LinearHeight = 50;
+        private const int CellRows = 6;
+        private const int CellHeight = 8;
 
         private const byte Black = 0, White = 1, Violet = 2, Green = 3, Blue = 4, Orange = 5;
 
@@ -227,7 +235,7 @@ public sealed class MonsterPictures
             (0, 0, 0), (255, 255, 255), (255, 68, 253), (20, 245, 60), (20, 207, 253), (255, 106, 60),
         ];
 
-        public static MonsterPictures? Load(ScenarioFile scenario)
+        public static MonsterPictures? Load(ScenarioFile scenario, int? scenarioNumber)
         {
             int z = (int)Zone.SpecialCharacter;
             int count = scenario.RecordCounts[z];
@@ -241,18 +249,37 @@ public sealed class MonsterPictures
                     break;
                 records.Add(scenario.Read(offset, RecordSize));
             }
-            // 50 行(500 バイト)のあとの 12 バイトは 0。#3 の区分 6 は別の形式(圧縮されているらしい)でこれが合わない
-            if (records.Count == 0 || records.Any(r => r.AsSpan(Height * BytesPerRow).ContainsAnyExcept((byte)0)))
+            if (records.Count == 0)
                 return null;
-            return new MonsterPictures("SCENARIO.DATA 区分 6", records.Count, 0, k => Decode(records[k]));
+
+            if (scenarioNumber == 3)
+                return new MonsterPictures("SCENARIO.DATA 区分 6", records.Count, 0, k => Decode(FromCells(records[k]), CellRows * CellHeight, 1));
+
+            // 50 行(500 バイト)のあとの 12 バイトは 0(#3 の文字の形式ではこれが合わない)
+            if (records.Any(r => r.AsSpan(LinearHeight * BytesPerRow).ContainsAnyExcept((byte)0)))
+                return null;
+            return new MonsterPictures("SCENARIO.DATA 区分 6", records.Count, 0, k => Decode(records[k], LinearHeight, 1));
         }
 
-        private static MonsterPicture Decode(byte[] r)
+        /// <summary>#3 の文字 60 個(文字コード順、1 文字 8 バイトで下の行から)を、上から 1 行 10 バイトの並びに直す。</summary>
+        private static byte[] FromCells(byte[] r)
         {
-            var pixels = new byte[Width * Height];
+            var rows = new byte[CellRows * CellHeight * BytesPerRow];
+            for (int ch = 0; ch < CellRows * BytesPerRow; ch++)
+            {
+                int cx = ch % BytesPerRow, cy = ch / BytesPerRow;
+                for (int j = 0; j < CellHeight; j++)
+                    rows[(cy * CellHeight + j) * BytesPerRow + cx] = r[ch * CellHeight + CellHeight - 1 - j];
+            }
+            return rows;
+        }
+
+        private static MonsterPicture Decode(byte[] r, int height, int phase)
+        {
+            var pixels = new byte[Width * height];
             var on = new bool[Width];
             var group = new int[Width];
-            for (int y = 0; y < Height; y++)
+            for (int y = 0; y < height; y++)
             {
                 for (int xb = 0; xb < BytesPerRow; xb++)
                 {
@@ -268,19 +295,19 @@ public sealed class MonsterPictures
                     bool left = x > 0 && on[x - 1], right = x < Width - 1 && on[x + 1];
                     byte c;
                     if (on[x])
-                        c = left || right ? White : ColorOf(x, group[x]);
+                        c = left || right ? White : ColorOf(x, group[x], phase);
                     else if (left && right && group[x - 1] == group[x + 1])
-                        c = ColorOf(x - 1, group[x - 1]);
+                        c = ColorOf(x - 1, group[x - 1], phase);
                     else
                         c = Black;
                     pixels[y * Width + x] = c;
                 }
             }
-            return new MonsterPicture(Width, Height, pixels, Palette, 1);
+            return new MonsterPicture(Width, height, pixels, Palette, 1);
         }
 
-        private static byte ColorOf(int x, int group) =>
-            (x + Phase) % 2 == 0
+        private static byte ColorOf(int x, int group, int phase) =>
+            (x + phase) % 2 == 0
                 ? (group == 0 ? Violet : Blue)
                 : (group == 0 ? Green : Orange);
     }
