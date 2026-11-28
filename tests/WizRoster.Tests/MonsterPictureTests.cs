@@ -35,6 +35,9 @@ public class MonsterPictureTests
         var colored = slime.Pixels.Where(p => p != 0).ToList();
         Assert.True(colored.Count > 500);
         Assert.Equal(4, colored.GroupBy(p => p & 4).OrderByDescending(g => g.Count()).First().Key);
+        // ゲームは色 1 と 7 を入れ替えている(色 1 = 白、色 7 = 青)
+        Assert.Equal(((byte)255, (byte)255, (byte)255), slime.Palette[1]);
+        Assert.Equal(((byte)0, (byte)0, (byte)255), slime.Palette[7]);
 
         // すべてのモンスターの絵の番号が範囲内
         Assert.All(doc.Scenario.Monsters, m => Assert.NotNull(pictures.Get(m.Picture)));
@@ -77,6 +80,9 @@ public class MonsterPictureTests
         var pic = pictures.Get(doc.Scenario.Monsters[0].Picture)!;
         Assert.Equal((72, 40, 2), (pic.Width, pic.Height, pic.PixelAspect));
         Assert.True(pic.Pixels.Count(p => p > 1) > 200);
+        // ゲームが設定するパレット(KOBOLD の体の色 7 は暗い水色、色 2 は暗い赤)
+        Assert.Equal(((byte)0, (byte)145, (byte)145), pic.Palette[7]);
+        Assert.Equal(((byte)145, (byte)0, (byte)0), pic.Palette[2]);
     }
 
     [Theory]

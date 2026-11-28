@@ -49,7 +49,7 @@ public sealed class MonsterPictures
     /// <summary>開いたディスクから絵を探す。読める形式がなければ null。</summary>
     public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image, ScenarioFile scenario, GameInfo game) =>
         TileFile.Load(directory, image)
-        ?? (game.Platform == "MSX2" ? Msx4Bit.Load(directory, image) : null)
+        ?? (game.Platform == "MSX2" ? Msx4Bit.Load(directory, image, game.Scenario) : null)
         ?? (game.Platform == "PC-DOS" ? CgaCells.Load(directory, image) : null)
         ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario, game.Scenario) : null);
 
@@ -58,7 +58,9 @@ public sealed class MonsterPictures
     /// <summary>
     /// 16 ドット幅のタイルを横 6 × 縦 5 に並べた絵(左上から横へ)。タイルはプレーン 0・1・2 の順に、
     /// 1 行 2 バイト(左のドットが上位ビット)。1 枚ごとの区切りの残りは ff a5 の繰り返し。
-    /// 色はデジタル 8 色(ビット 0 = 青、1 = 赤、2 = 緑)。
+    /// プレーン 0・1・2 を画面の青・赤・緑のプレーンに書く(PC-98 の SYSTEM.INTERP $1358)。
+    /// 色はデジタル 8 色だが、ゲームが色 1 と 7 を入れ替えている(色 1 = 白、色 7 = 青)。
+    /// PC-98 は I/O A8h〜AEh に 31h・75h・26h・04h、PC-8801 は OUT (55h),7・OUT (5Bh),1。
     /// </summary>
     private static class TileFile
     {
@@ -68,8 +70,8 @@ public sealed class MonsterPictures
 
         private static readonly (byte, byte, byte)[] Palette =
         [
-            (0, 0, 0), (0, 0, 255), (255, 0, 0), (255, 0, 255),
-            (0, 255, 0), (0, 255, 255), (255, 255, 0), (255, 255, 255),
+            (0, 0, 0), (255, 255, 255), (255, 0, 0), (255, 0, 255),
+            (0, 255, 0), (0, 255, 255), (255, 255, 0), (0, 0, 255),
         ];
 
         public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image)
@@ -137,7 +139,8 @@ public sealed class MonsterPictures
     /// <c>200.MONSTERS</c>(61440 バイト)。2048 バイトの区切りに 1 行 48 バイト × 40 行。
     /// 1 行は 8 バイトずつ 6 組で、各組の先頭 6 バイトが 12 ドット(SCREEN 5 形式。1 バイトに 2 ドット、上位 4 ビットが左)、
     /// 残り 2 バイトは 0。つまり 1 枚 72×40 ドット。区切りの残り 128 バイトも 0。
-    /// 色は MSX2 の標準パレット(ゲームがパレットを変えているかは確かめていない)。縦長のドットとして縦を 2 倍で出す。
+    /// 色はゲームが設定するパレット(ゲームディスクのプログラム部分にある 32 バイトの表。#1 は 0x6420 バイト目)。
+    /// #2・#3 は色 1 と 4 だけが #1 と違う。縦長のドットとして縦を 2 倍で出す。
     /// </summary>
     private static class Msx4Bit
     {
@@ -151,16 +154,26 @@ public sealed class MonsterPictures
         private const int Height = 40;
         private const int MaxStrayGroups = 8;
 
-        // MSX2 の標準パレット(各色 0〜7 を 0〜255 に広げる)
-        private static readonly (byte, byte, byte)[] Palette =
-            new (int R, int G, int B)[]
-            {
-                (0, 0, 0), (0, 0, 0), (1, 6, 1), (3, 7, 3), (1, 1, 7), (2, 3, 7), (5, 1, 1), (2, 6, 7),
-                (7, 1, 1), (7, 3, 3), (6, 6, 1), (6, 6, 4), (1, 4, 1), (6, 2, 5), (5, 5, 5), (7, 7, 7),
-            }.Select(c => ((byte)(c.R * 255 / 7), (byte)(c.G * 255 / 7), (byte)(c.B * 255 / 7))).ToArray();
+        // ゲームが設定するパレット(R, G, B 各 0〜7)。実機の画面と色が一致することを確かめた(#1 の KOBOLD)
+        private static readonly (byte, byte, byte)[] Palette1 = Expand(
+        [
+            (0, 0, 0), (0, 0, 0), (4, 0, 0), (0, 0, 4), (0, 0, 0), (0, 4, 0), (4, 4, 0), (0, 4, 4),
+            (4, 4, 4), (6, 0, 0), (0, 0, 6), (6, 0, 6), (0, 6, 0), (6, 6, 0), (0, 6, 6), (7, 7, 7),
+        ]);
 
-        public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image)
+        // #2・#3: 色 1 が暗い灰色、色 4 が暗い紫
+        private static readonly (byte, byte, byte)[] Palette23 = Expand(
+        [
+            (0, 0, 0), (2, 2, 2), (4, 0, 0), (0, 0, 4), (4, 0, 4), (0, 4, 0), (4, 4, 0), (0, 4, 4),
+            (4, 4, 4), (6, 0, 0), (0, 0, 6), (6, 0, 6), (0, 6, 0), (6, 6, 0), (0, 6, 6), (7, 7, 7),
+        ]);
+
+        private static (byte, byte, byte)[] Expand((int R, int G, int B)[] colors) =>
+            colors.Select(c => ((byte)(c.R * 255 / 7), (byte)(c.G * 255 / 7), (byte)(c.B * 255 / 7))).ToArray();
+
+        public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image, int? scenarioNumber)
         {
+            var palette = scenarioNumber is 2 or 3 ? Palette23 : Palette1;
             var entry = directory.Find(FileName);
             if (entry == null || entry.LastBlock > image.BlockCount)
                 return null;
@@ -183,10 +196,10 @@ public sealed class MonsterPictures
                 if (stray > MaxStrayGroups)
                     return null;
             }
-            return new MonsterPictures(FileName, data.Length / Slot, 1, k => Decode(data, k * Slot));
+            return new MonsterPictures(FileName, data.Length / Slot, 1, k => Decode(data, k * Slot, palette));
         }
 
-        private static MonsterPicture Decode(byte[] data, int start)
+        private static MonsterPicture Decode(byte[] data, int start, (byte, byte, byte)[] palette)
         {
             var pixels = new byte[Width * Height];
             int p = 0;
@@ -202,7 +215,7 @@ public sealed class MonsterPictures
                     }
                 }
             }
-            return new MonsterPicture(Width, Height, pixels, Palette, 2);
+            return new MonsterPicture(Width, Height, pixels, palette, 2);
         }
     }
 
