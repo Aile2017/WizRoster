@@ -92,6 +92,8 @@ internal sealed class MainForm : Form
         tools.DropDownItems.Add(Item("HP を全回復", Keys.None, (_, _) => _editor.HealFull()));
         tools.DropDownItems.Add(Item("状態を正常にする", Keys.None, (_, _) => _editor.CureStatus()));
         tools.DropDownItems.Add(Item("持ち物をすべて鑑定し、呪いを解く", Keys.None, (_, _) => _editor.IdentifyAndUncurseItems()));
+        tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add(Item("ボルタック商店の在庫(&B)...", Keys.None, (_, _) => EditBoltacStock()));
 
         menu.Items.AddRange(file, chr, tools);
         MainMenuStrip = menu;
@@ -472,6 +474,16 @@ internal sealed class MainForm : Form
         }
         _doc.ClearSlot(CurrentSlot);
         AfterSlotChange();
+    }
+
+    private void EditBoltacStock()
+    {
+        if (_doc == null)
+            return;
+        Validate();
+        using var dlg = new BoltacStockDialog(_doc);
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+            RefreshTitles();
     }
 
     private void RevertSlot()

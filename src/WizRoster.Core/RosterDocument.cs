@@ -15,6 +15,7 @@ public sealed record DiskChoice(int Index, string Label, bool HasCharacters, boo
 public sealed class RosterDocument
 {
     private readonly Character[] _saved;
+    private readonly int[] _savedStock;
 
     private RosterDocument(string path, IBlockImage image, ScenarioFile scenario, string volumeName,
         Character[] characters, IReadOnlyList<DiskChoice> disks, GameInfo game)
@@ -28,6 +29,8 @@ public sealed class RosterDocument
         _saved = characters;
         Characters = _saved.Select(c => c.Clone()).ToArray();
         EmptyTemplate = _saved.FirstOrDefault(c => c.IsEmpty)?.Clone() ?? Character.CreateBlank();
+        _savedStock = Enumerable.Range(0, scenario.Items.Count).Select(scenario.ReadBoltacStock).ToArray();
+        BoltacStock = (int[])_savedStock.Clone();
     }
 
     public string FilePath { get; private set; }
@@ -35,6 +38,9 @@ public sealed class RosterDocument
     public ScenarioFile Scenario { get; }
     public string VolumeName { get; }
     public Character[] Characters { get; }
+
+    /// <summary>ボルタック商店の在庫数(アイテム番号ごと。−1 = 無限、0 = 店に並ばない)。編集用のコピー。</summary>
+    public int[] BoltacStock { get; }
 
     /// <summary>機種とシナリオ。</summary>
     public GameInfo Game { get; }
@@ -111,7 +117,9 @@ public sealed class RosterDocument
 
     public bool IsDirty(int slot) => !Characters[slot].Raw.AsSpan().SequenceEqual(_saved[slot].Raw);
 
-    public bool IsAnyDirty => Enumerable.Range(0, Characters.Length).Any(IsDirty);
+    public bool IsStockDirty => !BoltacStock.AsSpan().SequenceEqual(_savedStock);
+
+    public bool IsAnyDirty => IsStockDirty || Enumerable.Range(0, Characters.Length).Any(IsDirty);
 
     /// <summary>スロットの編集を取り消して、最後に保存(または読み込み)した内容に戻す。</summary>
     public void Revert(int slot) => _saved[slot].Raw.CopyTo(Characters[slot].Raw, 0);
@@ -143,6 +151,11 @@ public sealed class RosterDocument
         path ??= FilePath;
         for (int i = 0; i < Characters.Length; i++)
             Scenario.WriteCharacter(i, Characters[i]);
+        for (int i = 0; i < BoltacStock.Length; i++)
+        {
+            if (BoltacStock[i] != _savedStock[i])
+                Scenario.WriteBoltacStock(i, BoltacStock[i]);
+        }
 
         string? backupPath = null;
         if (backup && File.Exists(path))
@@ -157,6 +170,7 @@ public sealed class RosterDocument
 
         for (int i = 0; i < Characters.Length; i++)
             Characters[i].Raw.CopyTo(_saved[i].Raw, 0);
+        BoltacStock.CopyTo(_savedStock, 0);
         FilePath = path;
         return backupPath;
     }

@@ -149,6 +149,26 @@ public sealed class ScenarioFile
         Write(RecordOffset(Zone.Character, slot, Character.RecordSize), character.Raw);
     }
 
+    /// <summary>
+    /// アイテム index のボルタック商店の在庫数(BOLTACXX)の位置。名前付きのレコードは +50、名前なしは +18。
+    /// ゲームは買うと 1 減らし、売ると 1 増やして(−1 = 無限のときはそのまま)レコードを書き戻す(SHOPS p15・p19)。
+    /// </summary>
+    private int BoltacStockOffset(int index)
+    {
+        if (index < 0 || index >= Items.Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        return RecordOffset(Zone.Item, index, ItemRecordSize) + (ItemRecordSize == ItemDef.RecordSize ? 50 : 18);
+    }
+
+    public int ReadBoltacStock(int index) => WizBytes.S16(Read(BoltacStockOffset(index), 2), 0);
+
+    public void WriteBoltacStock(int index, int value)
+    {
+        var b = new byte[2];
+        WizBytes.SetU16(b, 0, value);
+        Write(BoltacStockOffset(index), b);
+    }
+
     /// <summary>SCENARIO.DATA 内の位置からイメージファイル内の位置へ(連続イメージのときだけ意味がある。表示用)。</summary>
     public string DescribeLocation(int offset)
     {
