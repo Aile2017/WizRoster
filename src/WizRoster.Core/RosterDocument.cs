@@ -43,7 +43,7 @@ public sealed class RosterDocument
     /// <summary>ボルタック商店の在庫数(アイテム番号ごと。−1 = 無限、0 = 店に並ばない)。編集用のコピー。</summary>
     public int[] BoltacStock { get; }
 
-    /// <summary>モンスターの絵(読める形式のときだけ。今は PC-98・PC-8801 版)。</summary>
+    /// <summary>モンスターの絵(読める形式のときだけ。今は PC-98・PC-8801・Apple II 版)。</summary>
     public MonsterPictures? MonsterPictures { get; }
 
     /// <summary>機種とシナリオ。</summary>
@@ -99,9 +99,10 @@ public sealed class RosterDocument
             .Select(f => new DiskChoice(f.Opened.Image.DiskIndex, f.Opened.Image.DiskLabel!,
                 f.Characters.Any(c => !c.IsEmpty), f.Opened.Image.IsWriteProtected))
             .ToList();
+        var game = GameInfo.Identify(chosen.Opened.Directory, chosen.Scenario);
         return new RosterDocument(path, chosen.Opened.Image, chosen.Scenario, chosen.Opened.Directory.VolumeName,
-            chosen.Characters, disks, GameInfo.Identify(chosen.Opened.Directory, chosen.Scenario),
-            MonsterPictures.Load(chosen.Opened.Directory, chosen.Opened.Image));
+            chosen.Characters, disks, game,
+            MonsterPictures.Load(chosen.Opened.Directory, chosen.Opened.Image, chosen.Scenario, game));
     }
 
     /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>

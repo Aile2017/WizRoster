@@ -22,7 +22,7 @@ public class MonsterPictureTests
         var doc = RosterDocument.Open(path);
         var pictures = doc.MonsterPictures;
         Assert.NotNull(pictures);
-        Assert.Equal(file, pictures!.FileName);
+        Assert.Equal(file, pictures!.Source);
         Assert.Equal(30, pictures.Count);
         Assert.Null(pictures.Get(0));
         Assert.Null(pictures.Get(31));
@@ -41,6 +41,26 @@ public class MonsterPictureTests
     }
 
     [Theory]
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry I 2.dsk", 20)]
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry II 2.dsk", 30)]
+    public void AppleII_ReadsHiresPictures(string path, int count)
+    {
+        if (!File.Exists(path))
+            return;
+        var doc = RosterDocument.Open(path);
+        var pictures = doc.MonsterPictures;
+        Assert.NotNull(pictures);
+        Assert.Equal("SCENARIO.DATA 区分 6", pictures!.Source);
+        Assert.Equal(count, pictures.Count);
+        Assert.Equal(0, pictures.FirstNumber);
+        Assert.All(doc.Scenario.Monsters, m => Assert.NotNull(pictures.Get(m.Picture)));
+        var pic = pictures.Get(doc.Scenario.Monsters[0].Picture)!;
+        Assert.Equal((70, 50, 1), (pic.Width, pic.Height, pic.PixelAspect));
+        Assert.True(pic.Pixels.Count(p => p != 0) > 200);
+    }
+
+    [Theory]
+    [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry III 2.dsk")] // 区分 6 は別の形式
     [InlineData(PcDos)] // 200.MONSTERS は別の形式(圧縮されているらしい)
     [InlineData(Msx)]   // 200.MONSTERS は 0x40 で埋まっていて、絵は別の場所
     public void OtherFormats_AreNotMisread(string path)

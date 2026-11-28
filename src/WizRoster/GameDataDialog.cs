@@ -29,10 +29,9 @@ internal sealed class GameDataDialog : Form
     };
     private readonly Label _pictureNote = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(6, 4, 0, 0) };
 
-    // 絵は 96×80 を 3 倍で出す(200 ライン用の 96×40 は縦を 2 倍にしてから)
-    private const int PictureScale = 3;
-    private const int PictureWidth = 96 * PictureScale;
-    private const int PictureHeight = 80 * PictureScale;
+    // 絵の枠。絵はこの中に収まる最大の整数倍で出す(PC-98 の 96×80 は 3 倍、Apple II の 70×50 は 4 倍)
+    private const int PictureWidth = 96 * 3;
+    private const int PictureHeight = 80 * 3;
 
     public GameDataDialog(RosterDocument doc)
     {
@@ -270,19 +269,20 @@ internal sealed class GameDataDialog : Form
             return;
         }
         _monsterPicture.Image = ToBitmap(pic);
-        _pictureNote.Text = $"{pictures.FileName} の {m.Picture} 枚目";
+        _pictureNote.Text = $"{pictures.Source} の絵 {m.Picture}({pic.Width}×{pic.Height})";
     }
 
     /// <summary>色番号の絵を拡大したビットマップにする(縦長のドットは縦を伸ばす)。</summary>
     private static Bitmap ToBitmap(MonsterPicture pic)
     {
-        int sx = PictureScale, sy = PictureScale * pic.PixelAspect;
+        int scale = Math.Max(1, Math.Min(PictureWidth / pic.Width, PictureHeight / (pic.Height * pic.PixelAspect)));
+        int sx = scale, sy = scale * pic.PixelAspect;
         var bmp = new Bitmap(pic.Width * sx, pic.Height * sy);
         for (int y = 0; y < pic.Height; y++)
         {
             for (int x = 0; x < pic.Width; x++)
             {
-                var (r, g, b) = MonsterPicture.Palette[pic.Pixels[y * pic.Width + x] & 7];
+                var (r, g, b) = pic.Palette[pic.Pixels[y * pic.Width + x]];
                 var c = Color.FromArgb(r, g, b);
                 for (int dy = 0; dy < sy; dy++)
                 {
