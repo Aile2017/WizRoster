@@ -20,6 +20,19 @@ internal sealed class GameDataDialog : Form
     private readonly DataGridView _monsterGrid = NewGrid();
     private readonly TextBox _itemDetail = NewDetail();
     private readonly TextBox _monsterDetail = NewDetail();
+    private readonly PictureBox _monsterPicture = new()
+    {
+        Size = new Size(PictureWidth, PictureHeight),
+        BackColor = Color.Black,
+        SizeMode = PictureBoxSizeMode.CenterImage,
+        Margin = new Padding(6, 0, 0, 0),
+    };
+    private readonly Label _pictureNote = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(6, 4, 0, 0) };
+
+    // 絵は 96×80 を 3 倍で出す(200 ライン用の 96×40 は縦を 2 倍にしてから)
+    private const int PictureScale = 3;
+    private const int PictureWidth = 96 * PictureScale;
+    private const int PictureHeight = 80 * PictureScale;
 
     public GameDataDialog(RosterDocument doc)
     {
@@ -34,10 +47,10 @@ internal sealed class GameDataDialog : Form
         BuildItemGrid();
         BuildMonsterGrid();
         _itemGrid.SelectionChanged += (_, _) => _itemDetail.Text = SelectedIndex(_itemGrid) is int i ? ItemText(_scenario.Items[i]) : "";
-        _monsterGrid.SelectionChanged += (_, _) => _monsterDetail.Text = SelectedIndex(_monsterGrid) is int i ? MonsterText(_scenario.Monsters[i]) : "";
+        _monsterGrid.SelectionChanged += (_, _) => ShowMonster(SelectedIndex(_monsterGrid));
 
         _tabs.TabPages.Add(MakePage($"アイテム({_scenario.Items.Count})", _itemGrid, _itemDetail));
-        _tabs.TabPages.Add(MakePage($"モンスター({_scenario.Monsters.Count})", _monsterGrid, _monsterDetail));
+        _tabs.TabPages.Add(MakePage($"モンスター({_scenario.Monsters.Count})", _monsterGrid, MonsterBottom()));
         Controls.Add(_tabs);
     }
 
@@ -69,7 +82,7 @@ internal sealed class GameDataDialog : Form
         BackColor = SystemColors.Window,
     };
 
-    private static TabPage MakePage(string title, DataGridView grid, TextBox detail)
+    private static TabPage MakePage(string title, DataGridView grid, Control detail)
     {
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
         split.Panel1.Controls.Add(grid);
@@ -78,10 +91,10 @@ internal sealed class GameDataDialog : Form
         page.Controls.Add(split);
         page.Layout += (_, _) =>
         {
-            // 下の詳細欄は 220 ピクセルほど(ウィンドウを開いた最初だけ合わせる)
+            // 下の詳細欄は絵が収まる高さ(ウィンドウを開いた最初だけ合わせる)
             if (split.Tag == null && split.Height > 400)
             {
-                split.SplitterDistance = split.Height - 220;
+                split.SplitterDistance = split.Height - (PictureHeight + 30);
                 split.Tag = true;
             }
         };
@@ -218,6 +231,67 @@ internal sealed class GameDataDialog : Form
                 m.Picture);
             g.Rows[row].Tag = m.Index;
         }
+    }
+
+    private Control MonsterBottom()
+    {
+        var right = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Dock = DockStyle.Fill };
+        right.Controls.Add(_monsterPicture);
+        right.Controls.Add(_pictureNote);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.Controls.Add(_monsterDetail, 0, 0);
+        layout.Controls.Add(right, 1, 0);
+        return layout;
+    }
+
+    private void ShowMonster(int? index)
+    {
+        var old = _monsterPicture.Image;
+        _monsterPicture.Image = null;
+        old?.Dispose();
+        if (index is not int i)
+        {
+            _monsterDetail.Text = "";
+            _pictureNote.Text = "";
+            return;
+        }
+        var m = _scenario.Monsters[i];
+        _monsterDetail.Text = MonsterText(m);
+        if (_doc.MonsterPictures is not { } pictures)
+        {
+            _pictureNote.Text = "この機種の絵はまだ読めません";
+            return;
+        }
+        if (pictures.Get(m.Picture) is not { } pic)
+        {
+            _pictureNote.Text = $"絵 {m.Picture} はありません";
+            return;
+        }
+        _monsterPicture.Image = ToBitmap(pic);
+        _pictureNote.Text = $"{pictures.FileName} の {m.Picture} 枚目";
+    }
+
+    /// <summary>色番号の絵を拡大したビットマップにする(縦長のドットは縦を伸ばす)。</summary>
+    private static Bitmap ToBitmap(MonsterPicture pic)
+    {
+        int sx = PictureScale, sy = PictureScale * pic.PixelAspect;
+        var bmp = new Bitmap(pic.Width * sx, pic.Height * sy);
+        for (int y = 0; y < pic.Height; y++)
+        {
+            for (int x = 0; x < pic.Width; x++)
+            {
+                var (r, g, b) = MonsterPicture.Palette[pic.Pixels[y * pic.Width + x] & 7];
+                var c = Color.FromArgb(r, g, b);
+                for (int dy = 0; dy < sy; dy++)
+                {
+                    for (int dx = 0; dx < sx; dx++)
+                        bmp.SetPixel(x * sx + dx, y * sy + dy, c);
+                }
+            }
+        }
+        return bmp;
     }
 
     private static string AttackText(MonsterDef m) =>

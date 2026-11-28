@@ -13,7 +13,7 @@ UCSD p-System 版 Wizardry #1〜#3(PC-98・PC-DOS・MSX2・Apple II・PC-8801)�
 | [05-ascii-krn.md](analysis/05-ascii-krn.md) | アスキー移植版のメッセージファイル `ASCII.KRN` の構造と暗号 |
 | [06-game-program.md](analysis/06-game-program.md) | ゲーム本体(p-code)の解析: セービングスロー、毒、迷宮への置き去り、呪文の回数、レベルアップの HP、戦闘の能力、ボルタック商店の在庫など |
 | [07-verification.md](analysis/07-verification.md) | ゲームで確かめたこと、テストで確かめたこと、まだ分かっていないこと |
-| [08-monsters.md](analysis/08-monsters.md) | モンスターのレコード(158 / 94 バイト)、種族・特殊能力の番号 |
+| [08-monsters.md](analysis/08-monsters.md) | モンスターのレコード(158 / 94 バイト)、種族・特殊能力の番号、絵のファイルの形式 |
 
 確かさの表し方(各文書で共通):
 

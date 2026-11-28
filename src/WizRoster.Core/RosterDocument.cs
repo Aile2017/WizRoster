@@ -18,8 +18,9 @@ public sealed class RosterDocument
     private readonly int[] _savedStock;
 
     private RosterDocument(string path, IBlockImage image, ScenarioFile scenario, string volumeName,
-        Character[] characters, IReadOnlyList<DiskChoice> disks, GameInfo game)
+        Character[] characters, IReadOnlyList<DiskChoice> disks, GameInfo game, MonsterPictures? pictures)
     {
+        MonsterPictures = pictures;
         FilePath = path;
         Image = image;
         Scenario = scenario;
@@ -41,6 +42,9 @@ public sealed class RosterDocument
 
     /// <summary>ボルタック商店の在庫数(アイテム番号ごと。−1 = 無限、0 = 店に並ばない)。編集用のコピー。</summary>
     public int[] BoltacStock { get; }
+
+    /// <summary>モンスターの絵(読める形式のときだけ。今は PC-98・PC-8801 版)。</summary>
+    public MonsterPictures? MonsterPictures { get; }
 
     /// <summary>機種とシナリオ。</summary>
     public GameInfo Game { get; }
@@ -96,7 +100,8 @@ public sealed class RosterDocument
                 f.Characters.Any(c => !c.IsEmpty), f.Opened.Image.IsWriteProtected))
             .ToList();
         return new RosterDocument(path, chosen.Opened.Image, chosen.Scenario, chosen.Opened.Directory.VolumeName,
-            chosen.Characters, disks, GameInfo.Identify(chosen.Opened.Directory, chosen.Scenario));
+            chosen.Characters, disks, GameInfo.Identify(chosen.Opened.Directory, chosen.Scenario),
+            MonsterPictures.Load(chosen.Opened.Directory, chosen.Opened.Image));
     }
 
     /// <summary>同じボリュームの ASCII.KRN(アスキー移植版のメッセージファイル)。なければ null。</summary>
