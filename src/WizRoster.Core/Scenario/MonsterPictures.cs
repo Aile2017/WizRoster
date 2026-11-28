@@ -13,6 +13,7 @@ public sealed record MonsterPicture(int Width, int Height, byte[] Pixels, (byte 
 /// モンスターの絵。機種ごとに置き場所と形式が違う(docs/analysis/08-monsters.md)。
 /// <list type="bullet">
 /// <item>PC-98・PC-8801 版: <c>400.MONSTERS</c>(96×80)/ <c>200.MONSTERS</c>(96×40)。絵の番号 n(1 から)が n 枚目</item>
+/// <item>MSX2 版: <c>200.MONSTERS</c>。1 枚 72×40 ドット、16 色(1 ドット 4 ビット)。絵の番号 n(1 から)が n 枚目</item>
 /// <item>Apple II 版: SCENARIO.DATA の区分 6。1 枚 512 バイトの高解像度の絵(70×50)。絵の番号 n(0 から)が n 件目</item>
 /// </list>
 /// </summary>
@@ -46,7 +47,9 @@ public sealed class MonsterPictures
 
     /// <summary>開いたディスクから絵を探す。読める形式がなければ null。</summary>
     public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image, ScenarioFile scenario, GameInfo game) =>
-        TileFile.Load(directory, image) ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario) : null);
+        TileFile.Load(directory, image)
+        ?? (game.Platform == "MSX2" ? Msx4Bit.Load(directory, image) : null)
+        ?? (game.Platform == "Apple II" ? AppleHires.Load(scenario) : null);
 
     // ---- PC-98・PC-8801 版 ----
 
@@ -123,6 +126,81 @@ public sealed class MonsterPictures
                 }
             }
             return new MonsterPicture(width, height, pixels, Palette, tileHeight == 8 ? 2 : 1);
+        }
+    }
+
+    // ---- MSX2 版 ----
+
+    /// <summary>
+    /// <c>200.MONSTERS</c>(61440 バイト)。2048 バイトの区切りに 1 行 48 バイト × 40 行。
+    /// 1 行は 8 バイトずつ 6 組で、各組の先頭 6 バイトが 12 ドット(SCREEN 5 形式。1 バイトに 2 ドット、上位 4 ビットが左)、
+    /// 残り 2 バイトは 0。つまり 1 枚 72×40 ドット。区切りの残り 128 バイトも 0。
+    /// 色は MSX2 の標準パレット(ゲームがパレットを変えているかは確かめていない)。縦長のドットとして縦を 2 倍で出す。
+    /// </summary>
+    private static class Msx4Bit
+    {
+        private const string FileName = "200.MONSTERS";
+        private const int Slot = 2048;
+        private const int BytesPerRow = 48;
+        private const int Groups = 6;
+        private const int GroupStride = 8;
+        private const int GroupBytes = 6;
+        private const int Width = Groups * GroupBytes * 2;
+        private const int Height = 40;
+        private const int MaxStrayGroups = 8;
+
+        // MSX2 の標準パレット(各色 0〜7 を 0〜255 に広げる)
+        private static readonly (byte, byte, byte)[] Palette =
+            new (int R, int G, int B)[]
+            {
+                (0, 0, 0), (0, 0, 0), (1, 6, 1), (3, 7, 3), (1, 1, 7), (2, 3, 7), (5, 1, 1), (2, 6, 7),
+                (7, 1, 1), (7, 3, 3), (6, 6, 1), (6, 6, 4), (1, 4, 1), (6, 2, 5), (5, 5, 5), (7, 7, 7),
+            }.Select(c => ((byte)(c.R * 255 / 7), (byte)(c.G * 255 / 7), (byte)(c.B * 255 / 7))).ToArray();
+
+        public static MonsterPictures? Load(UcsdDirectory directory, IBlockImage image)
+        {
+            var entry = directory.Find(FileName);
+            if (entry == null || entry.LastBlock > image.BlockCount)
+                return null;
+            byte[] data = image.ReadBytes(entry.FirstBlock, 0, entry.BlockLength * BlockImageExtensions.BlockSize);
+            if (data.Length == 0 || data.Length % Slot != 0)
+                return null;
+            for (int start = 0; start < data.Length; start += Slot)
+            {
+                var picture = data.AsSpan(start, BytesPerRow * Height);
+                var rest = data.AsSpan(start + BytesPerRow * Height, Slot - BytesPerRow * Height);
+                if (rest.ContainsAnyExcept((byte)0) || !picture.ContainsAnyExcept((byte)0))
+                    return null;
+                // 各組の残り 2 バイトはほぼ 0(#1 の User Disk の 1 枚だけ、数バイト 0 でなかった)
+                int stray = 0;
+                for (int i = GroupBytes; i < picture.Length; i += GroupStride)
+                {
+                    if (picture[i] != 0 || picture[i + 1] != 0)
+                        stray++;
+                }
+                if (stray > MaxStrayGroups)
+                    return null;
+            }
+            return new MonsterPictures(FileName, data.Length / Slot, 1, k => Decode(data, k * Slot));
+        }
+
+        private static MonsterPicture Decode(byte[] data, int start)
+        {
+            var pixels = new byte[Width * Height];
+            int p = 0;
+            for (int y = 0; y < Height; y++)
+            {
+                for (int g = 0; g < Groups; g++)
+                {
+                    for (int i = 0; i < GroupBytes; i++)
+                    {
+                        byte b = data[start + y * BytesPerRow + g * GroupStride + i];
+                        pixels[p++] = (byte)(b >> 4);
+                        pixels[p++] = (byte)(b & 0x0F);
+                    }
+                }
+            }
+            return new MonsterPicture(Width, Height, pixels, Palette, 2);
         }
     }
 

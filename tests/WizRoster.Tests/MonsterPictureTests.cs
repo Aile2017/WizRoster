@@ -60,9 +60,27 @@ public class MonsterPictureTests
     }
 
     [Theory]
+    [InlineData(Msx)]
+    [InlineData(@"C:\usr\games\ROMS\MSX2\.MSX_Wizardry I - Proving Grounds of the Mad Overlord\MSX_Wizardry I - Proving Grounds of the Mad Overlord(Game Disk).dsk")]
+    public void Msx2_ReadsScreen5Pictures(string path)
+    {
+        if (!File.Exists(path))
+            return;
+        var doc = RosterDocument.Open(path);
+        var pictures = doc.MonsterPictures;
+        Assert.NotNull(pictures);
+        Assert.Equal("200.MONSTERS", pictures!.Source);
+        Assert.Equal(30, pictures.Count);
+        Assert.Equal(1, pictures.FirstNumber);
+        Assert.All(doc.Scenario.Monsters, m => Assert.NotNull(pictures.Get(m.Picture)));
+        var pic = pictures.Get(doc.Scenario.Monsters[0].Picture)!;
+        Assert.Equal((72, 40, 2), (pic.Width, pic.Height, pic.PixelAspect));
+        Assert.True(pic.Pixels.Count(p => p > 1) > 200);
+    }
+
+    [Theory]
     [InlineData(@"C:\usr\games\ROMS\Apple II\.APL2_Wizardry\APL2_Wozardry III 2.dsk")] // 区分 6 は別の形式
     [InlineData(PcDos)] // 200.MONSTERS は別の形式(圧縮されているらしい)
-    [InlineData(Msx)]   // 200.MONSTERS は 0x40 で埋まっていて、絵は別の場所
     public void OtherFormats_AreNotMisread(string path)
     {
         if (!File.Exists(path))
